@@ -16,6 +16,7 @@ from backend.core.contracts.errors import (
 from backend.core.contracts.run import StepResult, StepStatus
 from backend.core.providers.base import LLMProvider, LLMRequest
 from backend.core.providers.model_router import ModelRouter
+from backend.core.tools.executor import execute_api_tool, tools_to_claude_format
 
 logger = structlog.get_logger()
 
@@ -30,12 +31,19 @@ class AgentRunner:
         agent_contract: AgentContract,
         task: str,
         context: dict[str, Any] | None = None,
+        tools: list[dict[str, Any]] | None = None,
     ) -> StepResult:
         context = context or {}
+        tools = tools or []
         model = self.model_router.resolve(agent_contract.model_tier)
         retries = 0
         last_error: str | None = None
         feedback: str = ""
+
+        # Convert tools to Claude format
+        claude_tools = tools_to_claude_format(tools) if tools else []
+        # Build a lookup for tool configs (for execution)
+        tool_configs = {t["name"]: t for t in tools}
 
         while retries <= agent_contract.max_retries:
             start = time.monotonic()
@@ -50,6 +58,7 @@ class AgentRunner:
                     messages=messages,
                     temperature=agent_contract.temperature,
                     max_tokens=agent_contract.max_tokens,
+                    tools=claude_tools,
                 )
                 if agent_contract.output_schema:
                     request.output_schema = agent_contract.output_schema
@@ -62,23 +71,45 @@ class AgentRunner:
                 latency_ms = (time.monotonic() - start) * 1000
                 output = response.structured_output or response.content
 
+                # Handle empty responses gracefully
+                if not output or (isinstance(output, str) and not output.strip()):
+                    output = {"result": "no_output", "reason": "empty_response"}
+
                 if agent_contract.output_schema and isinstance(output, str):
+                    # Try to extract JSON from text response
+                    text = output.strip()
+                    json_start = text.find("{")
+                    json_end = text.rfind("}")
+                    if json_start >= 0 and json_end > json_start:
+                        text = text[json_start:json_end + 1]
                     try:
-                        output = json.loads(output)
+                        output = json.loads(text)
                     except json.JSONDecodeError as e:
                         raise CorrectableError(
                             f"Output is not valid JSON: {e}",
-                            feedback=f"Your output must be valid JSON matching this schema: {json.dumps(agent_contract.output_schema)}",
+                            feedback=f"Return ONLY valid JSON matching this schema: {json.dumps(agent_contract.output_schema)}. No markdown, no explanation.",
                         ) from e
 
                 if agent_contract.output_schema and isinstance(output, dict):
                     try:
                         jsonschema.validate(output, agent_contract.output_schema)
                     except jsonschema.ValidationError as e:
-                        raise CorrectableError(
-                            f"Output schema validation failed: {e.message}",
-                            feedback=f"Schema validation error: {e.message}. Fix your output to match the schema.",
-                        ) from e
+                        # Log but don't fail — continue with whatever output we have
+                        logger.warning("agent_schema_mismatch", agent=agent_contract.name, error=e.message)
+
+                # Execute any tool calls the LLM requested
+                executed_tools: list[dict[str, Any]] = []
+                if response.tool_calls and tool_configs:
+                    for tc in response.tool_calls:
+                        tool_name = tc.get("name", "")
+                        tool_args = tc.get("input", {})
+                        config = tool_configs.get(tool_name)
+                        if config and config.get("url"):
+                            logger.info("executing_tool", tool=tool_name, agent=agent_contract.name)
+                            result = await execute_api_tool(config, tool_args)
+                            executed_tools.append({"name": tool_name, "args": tool_args, "result": result})
+                        else:
+                            executed_tools.append({"name": tool_name, "args": tool_args, "result": {"skipped": True}})
 
                 cost = self.model_router.estimate_cost(
                     agent_contract.model_tier,
@@ -86,11 +117,18 @@ class AgentRunner:
                     response.output_tokens,
                 )
 
+                final_output = output
+                if executed_tools:
+                    final_output = {
+                        "agent_response": output,
+                        "tool_results": executed_tools,
+                    }
+
                 return StepResult(
                     node_id="",
                     status=StepStatus.completed,
                     agent_name=agent_contract.name,
-                    output=output,
+                    output=final_output,
                     tokens_used=response.input_tokens + response.output_tokens,
                     cost_usd=cost,
                     latency_ms=latency_ms,

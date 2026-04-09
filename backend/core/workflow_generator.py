@@ -11,40 +11,31 @@ from backend.core.providers.model_router import ModelRouter
 logger = structlog.get_logger()
 
 SYSTEM_PROMPT = """You are a workflow architect. Given a user's description of a business process,
-generate a valid WorkflowDefinition as JSON.
+generate a valid JSON workflow. Keep it CONCISE — use 5-8 nodes max.
 
-The workflow must use these node types:
-- "deterministic": runs a fixed function (e.g., intake, merge)
-- "agent": runs an AI agent (classifier, extractor, validator, risk_scorer, decision_maker, draft_writer)
-- "router": uses LLM to classify and route to different branches
-- "parallel": runs multiple sub-nodes concurrently
-- "human": pauses for human review/approval
-- "evaluator": validates output of a previous step
-
-Output ONLY valid JSON matching this schema:
+Output ONLY valid JSON (no markdown, no explanation). Schema:
 {
-  "id": "string (uuid)",
   "name": "string",
-  "version": "1.0.0",
-  "entry_node": "string (id of first node)",
+  "entry_node": "first_node_id",
   "nodes": [
     {
       "id": "string",
-      "type": "deterministic|agent|router|parallel|human|evaluator",
-      "agent_name": "string or null",
-      "next_nodes": ["string"],
-      "condition": "string or null",
-      "parallel_nodes": ["string"] or [],
-      "timeout_seconds": number,
+      "type": "deterministic|agent|router|human",
+      "agent_name": "classifier|extractor|validator|risk_scorer|decision_maker|draft_writer|null",
+      "next_nodes": ["next_node_id"],
       "config": {}
     }
-  ],
-  "max_total_cost_usd": 2.0,
-  "max_total_steps": 50
+  ]
 }
 
-Available built-in agents: classifier, extractor, validator, risk_scorer, decision_maker, draft_writer.
-Each node must have a unique id. Connect nodes via next_nodes. The last node should have empty next_nodes."""
+Rules:
+- 5-8 nodes maximum
+- Keep node IDs short (e.g. "intake", "classify", "extract")
+- Only use these agent_name values: classifier, extractor, validator, risk_scorer, decision_maker, draft_writer
+- The last node must have "next_nodes": []
+- For deterministic nodes: agent_name is null
+- For agent nodes: agent_name is required
+- Output ONLY the JSON object, nothing else"""
 
 
 class WorkflowGenerator:
@@ -53,7 +44,7 @@ class WorkflowGenerator:
         self.model_router = ModelRouter()
 
     async def generate(self, user_description: str) -> WorkflowDefinition:
-        model = self.model_router.resolve("powerful")
+        model = self.model_router.resolve("balanced")
 
         request = LLMRequest(
             model=model,
@@ -61,33 +52,46 @@ class WorkflowGenerator:
             messages=[
                 {
                     "role": "user",
-                    "content": f"Generate a workflow for this process:\n\n{user_description}",
+                    "content": f"Generate a compact workflow for: {user_description}",
                 }
             ],
             temperature=0.0,
-            max_tokens=4096,
+            max_tokens=2048,
         )
 
         response = await self.provider.complete(request)
+        content = response.content.strip()
+
+        # Extract JSON from response
+        if content.startswith("```"):
+            lines = content.split("\n")
+            content = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+
+        start = content.find("{")
+        end = content.rfind("}")
+        if start >= 0 and end > start:
+            content = content[start:end + 1]
 
         try:
-            workflow_data = json.loads(response.content)
-        except json.JSONDecodeError:
-            content = response.content
-            start = content.find("{")
-            end = content.rfind("}") + 1
-            if start >= 0 and end > start:
-                workflow_data = json.loads(content[start:end])
-            else:
-                raise ValueError("Could not parse workflow JSON from LLM response")
+            workflow_data = json.loads(content)
+        except json.JSONDecodeError as e:
+            logger.error("workflow_json_parse_error", error=str(e), content_length=len(content))
+            raise ValueError(f"Claude returned invalid JSON: {e}") from e
 
-        if "id" not in workflow_data:
-            workflow_data["id"] = str(uuid.uuid4())
+        # Ensure required fields
+        workflow_data.setdefault("id", str(uuid.uuid4()))
+        workflow_data.setdefault("version", "1.0.0")
+        workflow_data.setdefault("max_total_cost_usd", 2.0)
+        workflow_data.setdefault("max_total_steps", 50)
+
+        # Ensure each node has required fields
+        for node in workflow_data.get("nodes", []):
+            node.setdefault("next_nodes", [])
+            node.setdefault("condition", None)
+            node.setdefault("parallel_nodes", [])
+            node.setdefault("timeout_seconds", 120)
+            node.setdefault("config", {})
 
         workflow = WorkflowDefinition.model_validate(workflow_data)
-        logger.info(
-            "workflow_generated",
-            workflow_id=workflow.id,
-            num_nodes=len(workflow.nodes),
-        )
+        logger.info("workflow_generated", name=workflow.name, nodes=len(workflow.nodes))
         return workflow

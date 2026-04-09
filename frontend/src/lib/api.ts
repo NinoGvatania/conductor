@@ -15,18 +15,12 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 export const api = {
   // Chat
   chat: (message: string) =>
-    request("/api/chat", {
-      method: "POST",
-      body: JSON.stringify({ message }),
-    }),
+    request("/api/chat", { method: "POST", body: JSON.stringify({ message }) }),
 
   // Workflows
   listWorkflows: () => request("/api/workflows"),
   createWorkflow: (workflow: Record<string, unknown>) =>
-    request("/api/workflows", {
-      method: "POST",
-      body: JSON.stringify(workflow),
-    }),
+    request("/api/workflows", { method: "POST", body: JSON.stringify(workflow) }),
   startRun: (workflowId: string) =>
     request(`/api/workflows/${workflowId}/run`, { method: "POST" }),
 
@@ -45,5 +39,18 @@ export const api = {
 
   // Agents
   listAgents: () => request("/api/agents"),
-  getAgent: (name: string) => request(`/api/agents/${name}`),
+  getAgent: (id: string) => request(`/api/agents/${id}`),
+  createAgent: (agent: Record<string, unknown>) =>
+    request("/api/agents", { method: "POST", body: JSON.stringify(agent) }),
+  updateAgent: (id: string, data: Record<string, unknown>) =>
+    request(`/api/agents/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteAgent: (id: string) =>
+    request(`/api/agents/${id}`, { method: "DELETE" }),
+  shareAgent: (id: string) =>
+    request(`/api/agents/${id}/share`, { method: "POST" }),
+  cloneAgent: (id: string) =>
+    request(`/api/agents/${id}/clone`, { method: "POST" }),
+
+  // Providers
+  listProviders: () => request("/api/agents/providers"),
 };

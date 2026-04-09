@@ -1,4 +1,5 @@
 import asyncio
+import json
 import uuid
 from typing import Any
 
@@ -11,6 +12,7 @@ from backend.core.contracts.run import RunState, RunStatus, StepResult, StepStat
 from backend.core.contracts.workflow import NodeDefinition, NodeType, WorkflowDefinition
 from backend.core.engine.checkpoint import CheckpointStore
 from backend.core.guardrails.pipeline import GuardrailPipeline
+from backend.database import get_supabase_client
 from backend.core.providers.anthropic import AnthropicProvider
 from backend.core.providers.base import LLMRequest
 from backend.core.providers.model_router import ModelRouter
@@ -179,6 +181,31 @@ class OrchestrationEngine:
     ) -> StepResult:
         agent_name = node.agent_name or node.id
         agent_dict = BUILTIN_AGENTS.get(agent_name)
+        agent_tools: list[dict] = []
+
+        # Check builtin agents first, then DB
+        if not agent_dict:
+            try:
+                client = get_supabase_client()
+                result = client.table("agents").select("*").eq("name", agent_name).execute()
+                if result.data:
+                    row = result.data[0]
+                    agent_dict = {
+                        "name": row["name"],
+                        "description": row.get("description", ""),
+                        "purpose": row.get("purpose", ""),
+                        "model_tier": row.get("model_tier", "balanced"),
+                        "system_prompt": row.get("system_prompt", ""),
+                        "output_schema": row.get("output_schema", {}),
+                        "temperature": float(row.get("temperature", 0)),
+                        "timeout_seconds": row.get("timeout_seconds", 120),
+                        "max_retries": row.get("max_retries", 3),
+                        "max_tokens": row.get("max_tokens", 4096),
+                    }
+                    agent_tools = row.get("tools", []) or []
+            except Exception as e:
+                logger.warning("agent_db_lookup_failed", agent=agent_name, error=str(e))
+
         if not agent_dict:
             return StepResult(
                 node_id=node.id,
@@ -189,7 +216,9 @@ class OrchestrationEngine:
 
         agent_contract = AgentContract(**agent_dict)
         task = self._build_task(node, run_state)
-        step = await self.agent_runner.run(agent_contract, task, run_state.intermediate_results)
+        step = await self.agent_runner.run(
+            agent_contract, task, run_state.intermediate_results, tools=agent_tools
+        )
         step.node_id = node.id
         return step
 
@@ -342,11 +371,25 @@ class OrchestrationEngine:
         )
 
     def _build_task(self, node: NodeDefinition, run_state: RunState) -> str:
-        parts = [f"Process the following input for node '{node.id}'."]
+        parts = []
+        # Use node config description if available
+        desc = node.config.get("description", "")
+        if desc:
+            parts.append(f"Task: {desc}")
+        else:
+            parts.append(f"Process data for step '{node.id}'.")
+
         if run_state.input_data:
-            parts.append(f"Original input: {run_state.input_data}")
+            parts.append(f"Input data: {json.dumps(run_state.input_data, ensure_ascii=False, default=str)}")
+        else:
+            parts.append("Input data: (no specific input provided — use your best judgment based on the task description)")
+
         if run_state.intermediate_results:
-            parts.append(f"Previous results: {run_state.intermediate_results}")
+            parts.append(f"Results from previous steps: {json.dumps(run_state.intermediate_results, ensure_ascii=False, default=str)}")
+
         if node.config:
-            parts.append(f"Additional config: {node.config}")
+            config_info = {k: v for k, v in node.config.items() if k != "description"}
+            if config_info:
+                parts.append(f"Configuration: {json.dumps(config_info, ensure_ascii=False, default=str)}")
+
         return "\n\n".join(parts)

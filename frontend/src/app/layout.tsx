@@ -1,48 +1,24 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import Sidebar from "@/components/Sidebar";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "AgentFlow",
-  description: "Managed AI Workforce Platform",
+  description: "AI Workforce Platform",
 };
 
-const navItems = [
-  { href: "/", label: "Dashboard" },
-  { href: "/chat", label: "Chat" },
-  { href: "/agents", label: "Agents" },
-  { href: "/runs", label: "Runs" },
-  { href: "/approvals", label: "Approvals" },
-  { href: "/settings", label: "Settings" },
-];
-
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-gray-50">
+      <body>
         <div className="flex min-h-screen">
-          <aside className="w-64 bg-white border-r border-gray-200 p-4 flex flex-col">
-            <div className="mb-8">
-              <h1 className="text-xl font-bold text-gray-900">AgentFlow</h1>
-              <p className="text-xs text-gray-500">AI Workforce Platform</p>
+          <Sidebar />
+          <main className="flex-1 ml-52">
+            <div className="h-14 flex items-center px-6" style={{ borderBottom: "1px solid var(--border)" }}>
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>Production</span>
             </div>
-            <nav className="flex flex-col gap-1">
-              {navItems.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-100 hover:text-gray-900 transition-colors"
-                >
-                  {item.label}
-                </Link>
-              ))}
-            </nav>
-          </aside>
-          <main className="flex-1 p-8">{children}</main>
+            <div className="p-6 max-w-6xl">{children}</div>
+          </main>
         </div>
       </body>
     </html>
