@@ -1,0 +1,92 @@
+{
+  "id": "claims-processing-v1",
+  "name": "Insurance Claims Processing",
+  "version": "1.0.0",
+  "entry_node": "intake",
+  "nodes": [
+    {
+      "id": "intake",
+      "type": "deterministic",
+      "agent_name": null,
+      "next_nodes": ["classify"],
+      "condition": null,
+      "parallel_nodes": [],
+      "timeout_seconds": 30,
+      "config": {
+        "function": "passthrough"
+      }
+    },
+    {
+      "id": "classify",
+      "type": "agent",
+      "agent_name": "classifier",
+      "next_nodes": ["extract"],
+      "condition": null,
+      "parallel_nodes": [],
+      "timeout_seconds": 30,
+      "config": {}
+    },
+    {
+      "id": "extract",
+      "type": "agent",
+      "agent_name": "extractor",
+      "next_nodes": ["validate"],
+      "condition": null,
+      "parallel_nodes": [],
+      "timeout_seconds": 60,
+      "config": {}
+    },
+    {
+      "id": "validate",
+      "type": "agent",
+      "agent_name": "validator",
+      "next_nodes": ["risk_assess"],
+      "condition": null,
+      "parallel_nodes": [],
+      "timeout_seconds": 45,
+      "config": {}
+    },
+    {
+      "id": "risk_assess",
+      "type": "agent",
+      "agent_name": "risk_scorer",
+      "next_nodes": ["risk_route"],
+      "condition": null,
+      "parallel_nodes": [],
+      "timeout_seconds": 90,
+      "config": {}
+    },
+    {
+      "id": "risk_route",
+      "type": "router",
+      "agent_name": null,
+      "next_nodes": ["review", "decide"],
+      "condition": "If risk_score > 80, route to 'review' (human review). Otherwise route to 'decide' (auto-decision).",
+      "parallel_nodes": [],
+      "timeout_seconds": 30,
+      "config": {}
+    },
+    {
+      "id": "review",
+      "type": "human",
+      "agent_name": null,
+      "next_nodes": ["decide"],
+      "condition": null,
+      "parallel_nodes": [],
+      "timeout_seconds": 86400,
+      "config": {}
+    },
+    {
+      "id": "decide",
+      "type": "agent",
+      "agent_name": "decision_maker",
+      "next_nodes": [],
+      "condition": null,
+      "parallel_nodes": [],
+      "timeout_seconds": 120,
+      "config": {}
+    }
+  ],
+  "max_total_cost_usd": 2.0,
+  "max_total_steps": 50
+}
