@@ -1,6 +1,7 @@
 import uuid
 from typing import Any
 
+import structlog
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -12,6 +13,8 @@ from backend.core.agents.builtin.risk_scorer import RISK_SCORER_AGENT
 from backend.core.agents.builtin.validator import VALIDATOR_AGENT
 from backend.core.providers.model_router import ModelRouter
 from backend.database import get_supabase_client
+
+logger = structlog.get_logger()
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
@@ -61,6 +64,14 @@ class AgentUpdate(BaseModel):
     tags: list[str] | None = None
 
 
+# === STATIC ROUTES FIRST (before /{agent_id}) ===
+
+
+@router.get("/providers")
+async def list_providers():
+    return ModelRouter.list_providers()
+
+
 @router.get("")
 async def list_agents(include_builtin: bool = True):
     agents = []
@@ -80,6 +91,7 @@ async def list_agents(include_builtin: bool = True):
         client = get_supabase_client()
         result = client.table("agents").select("*").execute()
         for row in result.data:
+            config = row.get("config") or {}
             agents.append({
                 "id": row["id"],
                 "name": row["name"],
@@ -89,25 +101,20 @@ async def list_agents(include_builtin: bool = True):
                 "provider": row.get("provider", "anthropic"),
                 "system_prompt": row.get("system_prompt", ""),
                 "output_schema": row.get("output_schema", {}),
-                "temperature": row.get("temperature", 0.0),
-                "timeout_seconds": row.get("timeout_seconds", 120),
-                "max_retries": row.get("max_retries", 3),
-                "max_tokens": row.get("max_tokens", 4096),
-                "tools": row.get("tools", []),
-                "knowledge_bases": row.get("knowledge_bases", []),
+                "temperature": row.get("temperature") or config.get("temperature", 0.0),
+                "timeout_seconds": row.get("timeout_seconds") or config.get("timeout_seconds", 120),
+                "max_retries": row.get("max_retries") or config.get("max_retries", 3),
+                "max_tokens": row.get("max_tokens") or config.get("max_tokens", 4096),
+                "tools": row.get("tools") or config.get("tools", []),
+                "knowledge_bases": row.get("knowledge_bases") or config.get("knowledge_bases", []),
                 "is_builtin": False,
                 "is_public": row.get("is_public", False),
-                "tags": row.get("tags", []),
+                "tags": row.get("tags") or config.get("tags", []),
                 "status": row.get("status", "active"),
             })
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("agents_list_db_error", error=str(e))
     return agents
-
-
-@router.get("/providers")
-async def list_providers():
-    return ModelRouter.list_providers()
 
 
 @router.post("")
@@ -123,20 +130,25 @@ async def create_agent(agent: AgentCreate):
         "provider": agent.provider,
         "system_prompt": agent.system_prompt,
         "output_schema": agent.output_schema,
-        "config": {
-            "temperature": agent.temperature,
-            "timeout_seconds": agent.timeout_seconds,
-            "max_retries": agent.max_retries,
-            "max_tokens": agent.max_tokens,
-            "tools": agent.tools,
-            "knowledge_bases": agent.knowledge_bases,
-            "tags": agent.tags,
-        },
+        "temperature": agent.temperature,
+        "timeout_seconds": agent.timeout_seconds,
+        "max_retries": agent.max_retries,
+        "max_tokens": agent.max_tokens,
+        "tools": agent.tools,
+        "knowledge_bases": agent.knowledge_bases,
         "is_public": agent.is_public,
+        "tags": agent.tags,
         "status": "active",
     }
-    result = client.table("agents").insert(data).execute()
+    try:
+        client.table("agents").insert(data).execute()
+    except Exception as e:
+        logger.error("agent_create_error", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to save agent: {e}") from e
     return {"id": agent_id, **agent.model_dump()}
+
+
+# === DYNAMIC ROUTES (after static ones) ===
 
 
 @router.get("/{agent_id}")
@@ -147,7 +159,6 @@ async def get_agent(agent_id: str):
         if not agent:
             raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
         return {**agent, "id": agent_id, "is_builtin": True, "provider": "anthropic", "tools": [], "knowledge_bases": []}
-    # Also check by name for backward compatibility
     if agent_id in BUILTIN_AGENTS:
         agent = BUILTIN_AGENTS[agent_id]
         return {**agent, "id": f"builtin_{agent_id}", "is_builtin": True, "provider": "anthropic", "tools": [], "knowledge_bases": []}
@@ -166,7 +177,10 @@ async def update_agent(agent_id: str, update: AgentUpdate):
     data = {k: v for k, v in update.model_dump().items() if v is not None}
     if not data:
         raise HTTPException(status_code=400, detail="No fields to update")
-    result = client.table("agents").update(data).eq("id", agent_id).execute()
+    try:
+        client.table("agents").update(data).eq("id", agent_id).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
     return {"status": "updated", "id": agent_id}
 
 
@@ -190,7 +204,6 @@ async def share_agent(agent_id: str):
 
 @router.post("/{agent_id}/clone")
 async def clone_agent(agent_id: str):
-    """Clone a public agent to create your own copy."""
     source = await get_agent(agent_id)
     new_id = str(uuid.uuid4())
     client = get_supabase_client()
@@ -203,11 +216,8 @@ async def clone_agent(agent_id: str):
         "provider": source.get("provider", "anthropic"),
         "system_prompt": source.get("system_prompt", ""),
         "output_schema": source.get("output_schema", {}),
-        "config": {
-            "temperature": source.get("temperature", 0.0),
-            "tools": source.get("tools", []),
-            "knowledge_bases": source.get("knowledge_bases", []),
-        },
+        "tools": source.get("tools", []),
+        "knowledge_bases": source.get("knowledge_bases", []),
         "is_public": False,
         "status": "active",
     }
