@@ -5,9 +5,7 @@ import { api } from "@/lib/api";
 
 export default function ChatPage() {
   const [message, setMessage] = useState("");
-  const [workflow, setWorkflow] = useState<Record<string, unknown> | null>(
-    null
-  );
+  const [workflow, setWorkflow] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -39,50 +37,57 @@ export default function ChatPage() {
 
   return (
     <div>
-      <h2 className="text-2xl font-bold text-gray-900 mb-6">Chat</h2>
-      <p className="text-gray-600 mb-4">
-        Describe your business process and AI will generate a workflow.
+      <h2 className="text-2xl font-bold mb-1" style={{ color: "var(--text-primary)" }}>Chat</h2>
+      <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>
+        Describe a business process and AI will generate a workflow
       </p>
 
-      <div className="flex gap-2 mb-6">
+      <div className="flex gap-3 mb-6">
         <input
           type="text"
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSend()}
-          placeholder="Describe your process..."
-          className="flex-1 px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="e.g. Process insurance claims: classify, extract, assess risk, decide..."
           disabled={loading}
+          className="flex-1 px-4 py-3 rounded-lg text-sm"
+          style={{ background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
         />
         <button
           onClick={handleSend}
           disabled={loading || !message.trim()}
-          className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-6 py-3 rounded-lg text-sm font-medium text-white disabled:opacity-50"
+          style={{ background: "var(--accent)" }}
         >
-          {loading ? "Generating..." : "Send"}
+          {loading ? "Generating..." : "Generate"}
         </button>
       </div>
 
       {error && (
-        <div className="bg-red-50 text-red-700 p-3 rounded-md mb-4">
+        <div className="rounded-lg p-3 mb-4 text-sm" style={{ background: "rgba(239,68,68,0.1)", color: "var(--error)", border: "1px solid rgba(239,68,68,0.2)" }}>
           {error}
         </div>
       )}
 
       {workflow && (
         <div>
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-lg font-semibold">Generated Workflow</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>
+              Generated Workflow: {(workflow.name as string) || "Unnamed"}
+            </h3>
             <button
               onClick={handleStartRun}
-              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+              className="px-4 py-2 rounded-lg text-sm font-medium text-white"
+              style={{ background: "var(--success)" }}
             >
               Start Run
             </button>
           </div>
-          <pre className="bg-gray-900 text-green-400 p-4 rounded-md overflow-auto text-sm max-h-96">
-            {JSON.stringify(workflow, null, 2)}
-          </pre>
+          <div className="rounded-xl p-4 overflow-auto" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
+            <pre className="text-xs leading-relaxed" style={{ color: "var(--success)" }}>
+              {JSON.stringify(workflow, null, 2)}
+            </pre>
+          </div>
         </div>
       )}
     </div>
