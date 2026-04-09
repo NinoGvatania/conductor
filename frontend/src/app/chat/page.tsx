@@ -1,91 +1,162 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useRef } from "react";
 import { api } from "@/lib/api";
 
+interface Conversation { id: string; title: string; initiated_by: string; agent_name: string | null; created_at: string; }
+interface Message { id: string; role: string; content: string; created_at: string; }
+
 export default function ChatPage() {
-  const router = useRouter();
-  const [message, setMessage] = useState("");
-  const [workflow, setWorkflow] = useState<Record<string, unknown> | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [deploying, setDeploying] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeConv, setActiveConv] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
+  const messagesEnd = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    api.listConversations().then((c) => setConversations(c as Conversation[])).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (activeConv) {
+      api.getMessages(activeConv).then((m) => setMessages(m as Message[])).catch(() => {});
+    } else {
+      setMessages([]);
+    }
+  }, [activeConv]);
+
+  useEffect(() => {
+    messagesEnd.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   async function handleSend() {
-    if (!message.trim()) return;
-    setLoading(true);
-    setError("");
-    setSuccess("");
+    if (!input.trim() || sending) return;
+    const text = input;
+    setInput("");
+    setSending(true);
+
+    // Optimistic: show user message immediately
+    const tempMsg: Message = { id: "temp", role: "user", content: text, created_at: new Date().toISOString() };
+    setMessages((prev) => [...prev, tempMsg]);
+
     try {
-      setWorkflow((await api.chat(message)) as Record<string, unknown>);
+      const result = (await api.sendMessage(text, activeConv || undefined)) as {
+        conversation_id: string;
+        message: Message;
+      };
+
+      if (!activeConv) {
+        setActiveConv(result.conversation_id);
+        api.listConversations().then((c) => setConversations(c as Conversation[])).catch(() => {});
+      }
+
+      setMessages((prev) => [
+        ...prev.filter((m) => m.id !== "temp"),
+        { id: "user_" + Date.now(), role: "user", content: text, created_at: new Date().toISOString() },
+        result.message,
+      ]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to generate");
+      setMessages((prev) => [
+        ...prev.filter((m) => m.id !== "temp"),
+        { id: "err", role: "assistant", content: `Error: ${e instanceof Error ? e.message : "Failed"}`, created_at: new Date().toISOString() },
+      ]);
     } finally {
-      setLoading(false);
+      setSending(false);
     }
   }
 
-  async function handleStartRun() {
-    if (!workflow?.id) return;
-    setDeploying(true);
-    setError("");
-    try {
-      const saved = (await api.createWorkflow(workflow)) as { id: string };
-      await api.startRun(saved.id);
-      setSuccess(`Workflow deployed! Run started.`);
-      setWorkflow(null);
-      setMessage("");
-      setTimeout(() => router.push("/runs"), 1500);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to deploy workflow");
-    } finally {
-      setDeploying(false);
-    }
+  function handleNewChat() {
+    setActiveConv(null);
+    setMessages([]);
   }
 
   return (
-    <div>
-      <h1 className="text-2xl font-semibold tracking-tight mb-1" style={{ color: "var(--text-primary)" }}>Chat</h1>
-      <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>Describe a business process to generate a workflow</p>
-
-      <div className="flex gap-2 mb-6">
-        <input
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleSend()}
-          placeholder="Process insurance claims: classify, extract, assess risk, decide..."
-          disabled={loading || deploying}
-          className="flex-1 px-3 py-2 rounded-md text-sm"
-          style={{ background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
-        />
-        <button onClick={handleSend} disabled={loading || deploying || !message.trim()} className="px-4 py-2 rounded-md text-sm font-medium disabled:opacity-40" style={{ background: "var(--text-primary)", color: "var(--bg-primary)" }}>
-          {loading ? "Generating..." : "Generate"}
-        </button>
+    <div className="flex -m-6 h-[calc(100vh-48px)]">
+      {/* Conversation list */}
+      <div className="w-64 flex flex-col" style={{ borderRight: "1px solid var(--border)", background: "var(--bg-secondary)" }}>
+        <div className="p-3">
+          <button onClick={handleNewChat} className="w-full px-3 py-2 rounded-md text-sm font-medium text-left" style={{ border: "1px solid var(--border)", color: "var(--text-secondary)" }}>
+            + New Chat
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-2">
+          {conversations.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => setActiveConv(c.id)}
+              className="w-full text-left px-3 py-2 rounded-md text-xs mb-0.5 truncate transition-colors"
+              style={{
+                color: activeConv === c.id ? "var(--text-primary)" : "var(--text-muted)",
+                background: activeConv === c.id ? "var(--bg-hover)" : "transparent",
+              }}
+            >
+              {c.initiated_by === "agent" && <span style={{ color: "var(--accent)" }}>● </span>}
+              {c.title}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {error && <div className="text-sm mb-4 px-3 py-2 rounded-md" style={{ color: "var(--error)", background: "rgba(238,0,0,0.08)", border: "1px solid rgba(238,0,0,0.15)" }}>{error}</div>}
-      {success && <div className="text-sm mb-4 px-3 py-2 rounded-md" style={{ color: "var(--success)", background: "rgba(12,206,107,0.08)", border: "1px solid rgba(12,206,107,0.15)" }}>{success}</div>}
+      {/* Chat area */}
+      <div className="flex-1 flex flex-col">
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {messages.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-full">
+              <h2 className="text-xl font-semibold mb-2" style={{ color: "var(--text-primary)" }}>What are we working on?</h2>
+              <p className="text-sm" style={{ color: "var(--text-muted)" }}>Describe a task and I will coordinate the agents</p>
+            </div>
+          )}
+          <div className="max-w-2xl mx-auto space-y-4">
+            {messages.map((m) => (
+              <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                <div
+                  className="max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap"
+                  style={{
+                    background: m.role === "user" ? "var(--accent)" : "var(--bg-card)",
+                    color: m.role === "user" ? "#fff" : "var(--text-primary)",
+                    border: m.role === "user" ? "none" : "1px solid var(--border)",
+                  }}
+                >
+                  {m.content}
+                </div>
+              </div>
+            ))}
+            {sending && (
+              <div className="flex justify-start">
+                <div className="px-4 py-3 rounded-2xl text-sm" style={{ background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
+                  Thinking...
+                </div>
+              </div>
+            )}
+            <div ref={messagesEnd} />
+          </div>
+        </div>
 
-      {workflow && (
-        <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
-          <div className="flex items-center justify-between px-4 py-3" style={{ background: "var(--bg-card)", borderBottom: "1px solid var(--border)" }}>
-            <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{(workflow.name as string) || "Generated Workflow"}</span>
+        {/* Input */}
+        <div className="p-4" style={{ borderTop: "1px solid var(--border)" }}>
+          <div className="max-w-2xl mx-auto flex gap-2">
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
+              placeholder="Describe a task for your agents..."
+              disabled={sending}
+              className="flex-1 px-4 py-3 rounded-xl text-sm"
+              style={{ background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
+            />
             <button
-              onClick={handleStartRun}
-              disabled={deploying}
-              className="px-3 py-1 rounded-md text-xs font-medium disabled:opacity-50"
-              style={{ background: deploying ? "var(--text-muted)" : "var(--success)", color: "#000" }}
+              onClick={handleSend}
+              disabled={sending || !input.trim()}
+              className="px-4 py-3 rounded-xl text-sm font-medium disabled:opacity-30"
+              style={{ background: "var(--text-primary)", color: "var(--bg-primary)" }}
             >
-              {deploying ? "Deploying..." : "Deploy"}
+              Send
             </button>
           </div>
-          <pre className="p-4 text-xs overflow-auto max-h-[500px] leading-relaxed" style={{ background: "var(--bg-secondary)", color: "var(--text-secondary)" }}>
-            {JSON.stringify(workflow, null, 2)}
-          </pre>
         </div>
-      )}
+      </div>
     </div>
   );
 }

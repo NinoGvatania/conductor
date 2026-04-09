@@ -1,83 +1,133 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
+import { api } from "@/lib/api";
+
+interface ProviderInfo { id: string; name: string; description: string; models: Array<{ id: string; name: string; tier: string }>; auth_type: string; auth_placeholder: string; }
+interface ConnectedProvider { id: string; provider: string; is_active: boolean; }
 
 export default function SettingsPage() {
-  const [anthropicKey, setAnthropicKey] = useState("");
-  const [openaiKey, setOpenaiKey] = useState("");
-  const [defaultProvider, setDefaultProvider] = useState("anthropic");
-  const [maxCost, setMaxCost] = useState("2.00");
-  const [maxTokens, setMaxTokens] = useState("100000");
-  const [saved, setSaved] = useState(false);
+  const [catalog, setCatalog] = useState<ProviderInfo[]>([]);
+  const [connected, setConnected] = useState<ConnectedProvider[]>([]);
+  const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
+  const [apiKey, setApiKey] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    setAnthropicKey(localStorage.getItem("agentflow_anthropic_key") || "");
-    setOpenaiKey(localStorage.getItem("agentflow_openai_key") || "");
-    setDefaultProvider(localStorage.getItem("agentflow_default_provider") || "anthropic");
-    setMaxCost(localStorage.getItem("agentflow_max_cost") || "2.00");
-    setMaxTokens(localStorage.getItem("agentflow_max_tokens") || "100000");
+    api.getProviderCatalog().then((c) => setCatalog(c as ProviderInfo[])).catch(() => {});
+    api.listConnectedProviders().then((c) => setConnected(c as ConnectedProvider[])).catch(() => {});
   }, []);
 
-  function handleSave() {
-    localStorage.setItem("agentflow_anthropic_key", anthropicKey);
-    localStorage.setItem("agentflow_openai_key", openaiKey);
-    localStorage.setItem("agentflow_default_provider", defaultProvider);
-    localStorage.setItem("agentflow_max_cost", maxCost);
-    localStorage.setItem("agentflow_max_tokens", maxTokens);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  function isConnected(providerId: string): boolean {
+    return connected.some((c) => c.provider === providerId && c.is_active);
   }
 
-  const inputCls = "w-full px-3 py-2 rounded-md text-sm";
-  const inputStyle = { background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-primary)" };
+  async function handleConnect(providerId: string) {
+    if (!apiKey.trim()) return;
+    setSaving(true);
+    try {
+      await api.connectProvider(providerId, apiKey, baseUrl);
+      api.listConnectedProviders().then((c) => setConnected(c as ConnectedProvider[]));
+      setApiKey("");
+      setBaseUrl("");
+      setExpandedProvider(null);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Failed");
+    } finally { setSaving(false); }
+  }
+
+  async function handleDisconnect(providerId: string) {
+    const conn = connected.find((c) => c.provider === providerId);
+    if (conn) {
+      await api.disconnectProvider(conn.id);
+      setConnected((prev) => prev.map((c) => c.id === conn.id ? { ...c, is_active: false } : c));
+    }
+  }
+
+  const s = { background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-primary)" };
 
   return (
-    <div className="max-w-xl">
-      <h1 className="text-2xl font-semibold tracking-tight mb-6" style={{ color: "var(--text-primary)" }}>Settings</h1>
+    <div className="max-w-3xl">
+      <h1 className="text-2xl font-semibold tracking-tight mb-1" style={{ color: "var(--text-primary)" }}>Settings</h1>
+      <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>Connect LLM providers to power your agents</p>
 
-      <div className="space-y-6">
-        <section>
-          <h3 className="text-sm font-medium mb-3" style={{ color: "var(--text-primary)" }}>Default Provider</h3>
-          <div className="flex gap-2">
-            {["anthropic", "openai"].map((p) => (
-              <button key={p} onClick={() => setDefaultProvider(p)} className="flex-1 px-3 py-2.5 rounded-md text-sm font-medium capitalize transition-colors" style={{ background: defaultProvider === p ? "var(--bg-hover)" : "var(--bg-card)", border: `1px solid ${defaultProvider === p ? "var(--text-primary)" : "var(--border)"}`, color: defaultProvider === p ? "var(--text-primary)" : "var(--text-muted)" }}>
-                {p}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {catalog.map((p) => {
+          const active = isConnected(p.id);
+          const expanded = expandedProvider === p.id;
+          return (
+            <div key={p.id} className="rounded-lg overflow-hidden" style={{ border: `1px solid ${active ? "#0cce6b" : "var(--border)"}`, background: "var(--bg-card)" }}>
+              <button
+                onClick={() => setExpandedProvider(expanded ? null : p.id)}
+                className="w-full text-left p-4"
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{p.name}</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{
+                    background: active ? "rgba(12,206,107,0.1)" : "var(--bg-hover)",
+                    color: active ? "#0cce6b" : "var(--text-muted)",
+                  }}>
+                    {active ? "Connected" : "Not connected"}
+                  </span>
+                </div>
+                <p className="text-xs" style={{ color: "var(--text-muted)" }}>{p.description}</p>
+                {p.models.length > 0 && (
+                  <div className="flex gap-1 mt-2 flex-wrap">
+                    {p.models.map((m) => (
+                      <span key={m.id} className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: "var(--bg-hover)", color: "var(--text-muted)" }}>
+                        {m.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </button>
-            ))}
-          </div>
-        </section>
 
-        <section>
-          <h3 className="text-sm font-medium mb-3" style={{ color: "var(--text-primary)" }}>API Keys</h3>
-          <div className="space-y-3">
-            <div>
-              <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Anthropic</label>
-              <input type="password" value={anthropicKey} onChange={(e) => setAnthropicKey(e.target.value)} placeholder="sk-ant-..." className={inputCls} style={inputStyle} />
+              {expanded && (
+                <div className="px-4 pb-4" style={{ borderTop: "1px solid var(--border)" }}>
+                  <div className="pt-3 space-y-2">
+                    <input
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      placeholder={p.auth_placeholder}
+                      type="password"
+                      className="w-full px-3 py-2 rounded-md text-sm"
+                      style={s}
+                    />
+                    {p.auth_type === "api_key_and_url" && (
+                      <input
+                        value={baseUrl}
+                        onChange={(e) => setBaseUrl(e.target.value)}
+                        placeholder="https://your-api.com/v1"
+                        className="w-full px-3 py-2 rounded-md text-sm"
+                        style={s}
+                      />
+                    )}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleConnect(p.id)}
+                        disabled={saving || !apiKey.trim()}
+                        className="px-3 py-1.5 rounded-md text-xs font-medium disabled:opacity-50"
+                        style={{ background: "var(--text-primary)", color: "var(--bg-primary)" }}
+                      >
+                        {saving ? "Connecting..." : "Connect"}
+                      </button>
+                      {active && (
+                        <button
+                          onClick={() => handleDisconnect(p.id)}
+                          className="px-3 py-1.5 rounded-md text-xs"
+                          style={{ color: "#ee0000", border: "1px solid var(--border)" }}
+                        >
+                          Disconnect
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-            <div>
-              <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>OpenAI</label>
-              <input type="password" value={openaiKey} onChange={(e) => setOpenaiKey(e.target.value)} placeholder="sk-..." className={inputCls} style={inputStyle} />
-            </div>
-          </div>
-        </section>
-
-        <section>
-          <h3 className="text-sm font-medium mb-3" style={{ color: "var(--text-primary)" }}>Budget Limits</h3>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Max cost per run (USD)</label>
-              <input type="number" value={maxCost} onChange={(e) => setMaxCost(e.target.value)} step="0.01" className={inputCls} style={inputStyle} />
-            </div>
-            <div>
-              <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Max tokens per run</label>
-              <input type="number" value={maxTokens} onChange={(e) => setMaxTokens(e.target.value)} step="1000" className={inputCls} style={inputStyle} />
-            </div>
-          </div>
-        </section>
-
-        <button onClick={handleSave} className="px-4 py-2 rounded-md text-sm font-medium" style={{ background: saved ? "var(--success)" : "var(--text-primary)", color: "var(--bg-primary)" }}>
-          {saved ? "Saved" : "Save Changes"}
-        </button>
+          );
+        })}
       </div>
     </div>
   );

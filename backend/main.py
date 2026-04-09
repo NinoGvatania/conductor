@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.routes import agents, approvals, chat, runs, workflows
+from backend.routes import projects, conversations, tools, llm_providers
 
 structlog.configure(
     processors=[
@@ -13,8 +14,8 @@ structlog.configure(
 
 app = FastAPI(
     title="AgentFlow",
-    description="Managed AI Workforce Platform",
-    version="0.1.0",
+    description="AI Workforce Platform",
+    version="0.2.0",
 )
 
 app.add_middleware(
@@ -25,11 +26,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(chat.router)
+# Core routes
+app.include_router(projects.router)
+app.include_router(conversations.router)
+app.include_router(agents.router)
+app.include_router(tools.router)
 app.include_router(workflows.router)
 app.include_router(runs.router)
+app.include_router(llm_providers.router)
+app.include_router(chat.router)
 app.include_router(approvals.router)
-app.include_router(agents.router)
 
 
 @app.get("/api/health")
@@ -40,11 +46,10 @@ async def health_check():
 @app.on_event("startup")
 async def startup():
     logger = structlog.get_logger()
-    logger.info("agentflow_starting")
+    logger.info("agentflow_v2_starting")
     try:
         from backend.database import get_supabase_client
-
-        client = get_supabase_client()
+        get_supabase_client()
         logger.info("supabase_connected")
     except Exception as e:
         logger.warning("supabase_connection_failed", error=str(e))

@@ -4,11 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const navItems = [
-  { href: "/", label: "Overview" },
+  { href: "/", label: "Dashboard" },
   { href: "/chat", label: "Chat" },
+  { href: "/workflows", label: "Workflows" },
   { href: "/agents", label: "Agents" },
-  { href: "/runs", label: "Runs" },
-  { href: "/approvals", label: "Approvals" },
+  { href: "/tools", label: "Tools" },
   { href: "/settings", label: "Settings" },
 ];
 
@@ -16,10 +16,7 @@ export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-52 flex flex-col fixed h-screen" style={{ background: "var(--bg-secondary)", borderRight: "1px solid var(--border)" }}>
-      <div className="h-14 flex items-center px-5" style={{ borderBottom: "1px solid var(--border)" }}>
-        <span className="text-sm font-semibold tracking-tight" style={{ color: "var(--text-primary)" }}>AgentFlow</span>
-      </div>
+    <aside className="w-48 flex flex-col fixed h-[calc(100vh-48px)] top-12" style={{ background: "var(--bg-secondary)", borderRight: "1px solid var(--border)" }}>
       <nav className="flex-1 py-3 px-2 flex flex-col gap-px">
         {navItems.map((item) => {
           const active = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));

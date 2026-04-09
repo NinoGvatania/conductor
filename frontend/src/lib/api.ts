@@ -13,9 +13,41 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  // Chat
-  chat: (message: string) =>
-    request("/api/chat", { method: "POST", body: JSON.stringify({ message }) }),
+  // Projects
+  listProjects: () => request("/api/projects"),
+  createProject: (name: string, description = "") =>
+    request("/api/projects", { method: "POST", body: JSON.stringify({ name, description }) }),
+  deleteProject: (id: string) => request(`/api/projects/${id}`, { method: "DELETE" }),
+
+  // Conversations
+  listConversations: (projectId?: string) =>
+    request(`/api/conversations${projectId ? `?project_id=${projectId}` : ""}`),
+  getMessages: (convId: string) => request(`/api/conversations/${convId}/messages`),
+  sendMessage: (content: string, conversationId?: string, projectId?: string) =>
+    request("/api/conversations/send", {
+      method: "POST",
+      body: JSON.stringify({ content, conversation_id: conversationId, project_id: projectId }),
+    }),
+  deleteConversation: (id: string) => request(`/api/conversations/${id}`, { method: "DELETE" }),
+
+  // Agents
+  listAgents: () => request("/api/agents"),
+  getAgent: (id: string) => request(`/api/agents/${id}`),
+  createAgent: (agent: Record<string, unknown>) =>
+    request("/api/agents", { method: "POST", body: JSON.stringify(agent) }),
+  updateAgent: (id: string, data: Record<string, unknown>) =>
+    request(`/api/agents/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteAgent: (id: string) => request(`/api/agents/${id}`, { method: "DELETE" }),
+  cloneAgent: (id: string) => request(`/api/agents/${id}/clone`, { method: "POST" }),
+
+  // Tools
+  listTools: (projectId?: string) =>
+    request(`/api/tools${projectId ? `?project_id=${projectId}` : ""}`),
+  createTool: (tool: Record<string, unknown>) =>
+    request("/api/tools", { method: "POST", body: JSON.stringify(tool) }),
+  updateTool: (id: string, data: Record<string, unknown>) =>
+    request(`/api/tools/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteTool: (id: string) => request(`/api/tools/${id}`, { method: "DELETE" }),
 
   // Workflows
   listWorkflows: () => request("/api/workflows"),
@@ -25,32 +57,26 @@ export const api = {
     request(`/api/workflows/${workflowId}/run`, { method: "POST" }),
 
   // Runs
-  listRuns: (status?: string) =>
-    request(`/api/runs${status ? `?status=${status}` : ""}`),
+  listRuns: (status?: string) => request(`/api/runs${status ? `?status=${status}` : ""}`),
   getRun: (runId: string) => request(`/api/runs/${runId}`),
 
-  // Approvals
-  listApprovals: () => request("/api/approvals"),
-  resolveApproval: (runId: string, decision: string, comment: string = "") =>
-    request(`/api/approvals/${runId}/resolve`, {
+  // LLM Providers
+  getProviderCatalog: () => request("/api/llm-providers/catalog"),
+  listConnectedProviders: (projectId?: string) =>
+    request(`/api/llm-providers${projectId ? `?project_id=${projectId}` : ""}`),
+  connectProvider: (provider: string, apiKey: string, baseUrl = "", projectId?: string) =>
+    request("/api/llm-providers/connect", {
       method: "POST",
-      body: JSON.stringify({ decision, comment }),
+      body: JSON.stringify({ provider, api_key: apiKey, base_url: baseUrl, project_id: projectId }),
     }),
+  disconnectProvider: (id: string) =>
+    request(`/api/llm-providers/${id}/disconnect`, { method: "POST" }),
 
-  // Agents
-  listAgents: () => request("/api/agents"),
-  getAgent: (id: string) => request(`/api/agents/${id}`),
-  createAgent: (agent: Record<string, unknown>) =>
-    request("/api/agents", { method: "POST", body: JSON.stringify(agent) }),
-  updateAgent: (id: string, data: Record<string, unknown>) =>
-    request(`/api/agents/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-  deleteAgent: (id: string) =>
-    request(`/api/agents/${id}`, { method: "DELETE" }),
-  shareAgent: (id: string) =>
-    request(`/api/agents/${id}/share`, { method: "POST" }),
-  cloneAgent: (id: string) =>
-    request(`/api/agents/${id}/clone`, { method: "POST" }),
-
-  // Providers
+  // Legacy
+  chat: (message: string) =>
+    request("/api/chat", { method: "POST", body: JSON.stringify({ message }) }),
+  listApprovals: () => request("/api/approvals"),
+  resolveApproval: (runId: string, decision: string, comment = "") =>
+    request(`/api/approvals/${runId}/resolve`, { method: "POST", body: JSON.stringify({ decision, comment }) }),
   listProviders: () => request("/api/agents/providers"),
 };

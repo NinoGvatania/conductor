@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Sidebar from "@/components/Sidebar";
+import Header from "@/components/Header";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -11,12 +12,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en">
       <body>
-        <div className="flex min-h-screen">
+        <Header />
+        <div className="flex pt-12 min-h-screen">
           <Sidebar />
-          <main className="flex-1 ml-52">
-            <div className="h-14 flex items-center px-6" style={{ borderBottom: "1px solid var(--border)" }}>
-              <span className="text-xs" style={{ color: "var(--text-muted)" }}>Production</span>
-            </div>
+          <main className="flex-1 ml-48">
             <div className="p-6 max-w-6xl">{children}</div>
           </main>
         </div>
