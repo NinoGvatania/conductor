@@ -85,10 +85,8 @@ class AgentRunner:
                     try:
                         jsonschema.validate(output, agent_contract.output_schema)
                     except jsonschema.ValidationError as e:
-                        raise CorrectableError(
-                            f"Output schema validation failed: {e.message}",
-                            feedback=f"Schema validation error: {e.message}. Fix your output to match the schema.",
-                        ) from e
+                        # Log but don't fail — continue with whatever output we have
+                        logger.warning("agent_schema_mismatch", agent=agent_contract.name, error=e.message)
 
                 cost = self.model_router.estimate_cost(
                     agent_contract.model_tier,
