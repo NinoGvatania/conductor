@@ -26,7 +26,7 @@ export default function NewAgentPage() {
     max_retries: 3,
     max_tokens: 4096,
     output_schema: "",
-    tools: [] as Array<{ name: string; description: string; type: string }>,
+    tools: [] as Array<{ name: string; description: string; url: string; method: string; headers: string; parameters: string }>,
     knowledge_bases: [] as Array<{ name: string; type: string; source: string }>,
     is_public: false,
     tags: "",
@@ -43,7 +43,7 @@ export default function NewAgentPage() {
   function addTool() {
     setForm((prev) => ({
       ...prev,
-      tools: [...prev.tools, { name: "", description: "", type: "function" }],
+      tools: [...prev.tools, { name: "", description: "", url: "", method: "POST", headers: "", parameters: "" }],
     }));
   }
 
@@ -70,8 +70,17 @@ export default function NewAgentPage() {
       if (form.output_schema.trim()) {
         schema = JSON.parse(form.output_schema);
       }
+      const parsedTools = form.tools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        url: t.url,
+        method: t.method,
+        headers: t.headers ? JSON.parse(t.headers) : {},
+        parameters: t.parameters ? JSON.parse(t.parameters) : {},
+      }));
       await api.createAgent({
         ...form,
+        tools: parsedTools,
         output_schema: schema,
         tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
       });
@@ -172,13 +181,29 @@ export default function NewAgentPage() {
             </button>
           </div>
           {form.tools.length === 0 && (
-            <p className="text-xs" style={{ color: "var(--text-muted)" }}>No tools added. Tools let agents interact with external systems.</p>
+            <p className="text-xs" style={{ color: "var(--text-muted)" }}>No tools added. Add API integrations so the agent can interact with external systems (CRM, messengers, databases).</p>
           )}
           {form.tools.map((tool, i) => (
-            <div key={i} className="flex gap-2 mb-2">
-              <input value={tool.name} onChange={(e) => { const t = [...form.tools]; t[i].name = e.target.value; updateField("tools", t); }} placeholder="Tool name" className="flex-1 px-3 py-2 rounded-lg text-sm" style={inputStyle} />
-              <input value={tool.description} onChange={(e) => { const t = [...form.tools]; t[i].description = e.target.value; updateField("tools", t); }} placeholder="Description" className="flex-[2] px-3 py-2 rounded-lg text-sm" style={inputStyle} />
-              <button onClick={() => removeTool(i)} className="px-3 py-2 rounded-lg text-sm" style={{ color: "var(--error)" }}>✕</button>
+            <div key={i} className="rounded-lg p-4 mb-3" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
+              <div className="flex justify-between mb-3">
+                <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>Tool #{i + 1}</span>
+                <button onClick={() => removeTool(i)} className="text-xs" style={{ color: "var(--error)" }}>Remove</button>
+              </div>
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <input value={tool.name} onChange={(e) => { const t = [...form.tools]; t[i] = {...t[i], name: e.target.value}; updateField("tools", t); }} placeholder="Name (e.g. send_telegram)" className="px-3 py-2 rounded-md text-sm" style={inputStyle} />
+                <div className="flex gap-2">
+                  <select value={tool.method} onChange={(e) => { const t = [...form.tools]; t[i] = {...t[i], method: e.target.value}; updateField("tools", t); }} className="px-3 py-2 rounded-md text-sm w-24" style={inputStyle}>
+                    <option value="GET">GET</option>
+                    <option value="POST">POST</option>
+                    <option value="PUT">PUT</option>
+                    <option value="DELETE">DELETE</option>
+                  </select>
+                  <input value={tool.url} onChange={(e) => { const t = [...form.tools]; t[i] = {...t[i], url: e.target.value}; updateField("tools", t); }} placeholder="API URL (https://api.example.com/...)" className="flex-1 px-3 py-2 rounded-md text-sm" style={inputStyle} />
+                </div>
+              </div>
+              <input value={tool.description} onChange={(e) => { const t = [...form.tools]; t[i] = {...t[i], description: e.target.value}; updateField("tools", t); }} placeholder="Description for AI: what this tool does, when to use it" className="w-full px-3 py-2 rounded-md text-sm mb-2" style={inputStyle} />
+              <input value={tool.headers} onChange={(e) => { const t = [...form.tools]; t[i] = {...t[i], headers: e.target.value}; updateField("tools", t); }} placeholder='Headers JSON: {"Authorization": "Bearer token123", "Content-Type": "application/json"}' className="w-full px-3 py-2 rounded-md text-xs font-mono mb-2" style={inputStyle} />
+              <input value={tool.parameters} onChange={(e) => { const t = [...form.tools]; t[i] = {...t[i], parameters: e.target.value}; updateField("tools", t); }} placeholder='Parameters schema JSON: {"type":"object","properties":{"message":{"type":"string"},"chat_id":{"type":"string"}}}' className="w-full px-3 py-2 rounded-md text-xs font-mono" style={inputStyle} />
             </div>
           ))}
         </section>
