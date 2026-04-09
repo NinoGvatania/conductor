@@ -25,12 +25,13 @@ export default function ChatPage() {
   async function handleStartRun() {
     if (!workflow?.id) return;
     try {
-      await api.createWorkflow(workflow);
-      await api.startRun(workflow.id as string);
+      const saved = (await api.createWorkflow(workflow)) as { id: string };
+      await api.startRun(saved.id);
       setWorkflow(null);
       setMessage("");
+      setError("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to start run");
+      setError(e instanceof Error ? e.message : "Failed to deploy workflow");
     }
   }
 
