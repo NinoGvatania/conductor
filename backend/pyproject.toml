@@ -1,0 +1,22 @@
+[project]
+name = "agentflow-backend"
+version = "0.1.0"
+description = "AgentFlow — Managed AI Workforce Platform Backend"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.6.0",
+    "anthropic>=0.40.0",
+    "supabase>=2.10.0",
+    "structlog>=24.4.0",
+    "jsonschema>=4.23.0",
+]
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["backend*"]
