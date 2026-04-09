@@ -1,4 +1,5 @@
 import asyncio
+import json
 import uuid
 from typing import Any
 
@@ -342,11 +343,25 @@ class OrchestrationEngine:
         )
 
     def _build_task(self, node: NodeDefinition, run_state: RunState) -> str:
-        parts = [f"Process the following input for node '{node.id}'."]
+        parts = []
+        # Use node config description if available
+        desc = node.config.get("description", "")
+        if desc:
+            parts.append(f"Task: {desc}")
+        else:
+            parts.append(f"Process data for step '{node.id}'.")
+
         if run_state.input_data:
-            parts.append(f"Original input: {run_state.input_data}")
+            parts.append(f"Input data: {json.dumps(run_state.input_data, ensure_ascii=False, default=str)}")
+        else:
+            parts.append("Input data: (no specific input provided — use your best judgment based on the task description)")
+
         if run_state.intermediate_results:
-            parts.append(f"Previous results: {run_state.intermediate_results}")
+            parts.append(f"Results from previous steps: {json.dumps(run_state.intermediate_results, ensure_ascii=False, default=str)}")
+
         if node.config:
-            parts.append(f"Additional config: {node.config}")
+            config_info = {k: v for k, v in node.config.items() if k != "description"}
+            if config_info:
+                parts.append(f"Configuration: {json.dumps(config_info, ensure_ascii=False, default=str)}")
+
         return "\n\n".join(parts)

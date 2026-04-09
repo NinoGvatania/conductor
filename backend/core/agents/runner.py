@@ -62,13 +62,23 @@ class AgentRunner:
                 latency_ms = (time.monotonic() - start) * 1000
                 output = response.structured_output or response.content
 
+                # Handle empty responses gracefully
+                if not output or (isinstance(output, str) and not output.strip()):
+                    output = {"result": "no_output", "reason": "empty_response"}
+
                 if agent_contract.output_schema and isinstance(output, str):
+                    # Try to extract JSON from text response
+                    text = output.strip()
+                    json_start = text.find("{")
+                    json_end = text.rfind("}")
+                    if json_start >= 0 and json_end > json_start:
+                        text = text[json_start:json_end + 1]
                     try:
-                        output = json.loads(output)
+                        output = json.loads(text)
                     except json.JSONDecodeError as e:
                         raise CorrectableError(
                             f"Output is not valid JSON: {e}",
-                            feedback=f"Your output must be valid JSON matching this schema: {json.dumps(agent_contract.output_schema)}",
+                            feedback=f"Return ONLY valid JSON matching this schema: {json.dumps(agent_contract.output_schema)}. No markdown, no explanation.",
                         ) from e
 
                 if agent_contract.output_schema and isinstance(output, dict):
