@@ -1,16 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { api } from "@/lib/api";
-
-interface Provider {
-  id: string;
-  name: string;
-  models: Record<string, string>;
-}
 
 export default function SettingsPage() {
-  const [providers, setProviders] = useState<Provider[]>([]);
   const [anthropicKey, setAnthropicKey] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
   const [defaultProvider, setDefaultProvider] = useState("anthropic");
@@ -19,7 +11,6 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    api.listProviders().then((p) => setProviders(p as Provider[])).catch(() => {});
     setAnthropicKey(localStorage.getItem("agentflow_anthropic_key") || "");
     setOpenaiKey(localStorage.getItem("agentflow_openai_key") || "");
     setDefaultProvider(localStorage.getItem("agentflow_default_provider") || "anthropic");
@@ -37,73 +28,55 @@ export default function SettingsPage() {
     setTimeout(() => setSaved(false), 2000);
   }
 
-  const inputStyle = {
-    background: "var(--bg-secondary)",
-    border: "1px solid var(--border)",
-    color: "var(--text-primary)",
-  };
+  const inputCls = "w-full px-3 py-2 rounded-md text-sm";
+  const inputStyle = { background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-primary)" };
 
   return (
-    <div className="max-w-2xl">
-      <h2 className="text-2xl font-bold mb-1" style={{ color: "var(--text-primary)" }}>Settings</h2>
-      <p className="text-sm mb-8" style={{ color: "var(--text-muted)" }}>Configure API keys, providers, and budget limits</p>
+    <div className="max-w-xl">
+      <h1 className="text-2xl font-semibold tracking-tight mb-6" style={{ color: "var(--text-primary)" }}>Settings</h1>
 
       <div className="space-y-6">
-        {/* Provider Selection */}
-        <section className="rounded-xl p-6" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
-          <h3 className="font-semibold mb-4" style={{ color: "var(--text-primary)" }}>Default LLM Provider</h3>
-          <div className="grid grid-cols-2 gap-3">
-            {(providers.length > 0 ? providers : [{ id: "anthropic", name: "Anthropic" }, { id: "openai", name: "OpenAI" }]).map((p) => (
-              <button
-                key={p.id}
-                onClick={() => setDefaultProvider(p.id)}
-                className="rounded-lg p-4 text-left transition-all"
-                style={{
-                  background: defaultProvider === p.id ? "var(--bg-hover)" : "var(--bg-secondary)",
-                  border: `2px solid ${defaultProvider === p.id ? "var(--accent)" : "var(--border)"}`,
-                }}
-              >
-                <p className="font-medium text-sm" style={{ color: "var(--text-primary)" }}>{p.name}</p>
-                <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-                  {p.id === "anthropic" ? "Claude Haiku / Sonnet / Opus" : "GPT-4o Mini / GPT-4o / o3"}
-                </p>
+        <section>
+          <h3 className="text-sm font-medium mb-3" style={{ color: "var(--text-primary)" }}>Default Provider</h3>
+          <div className="flex gap-2">
+            {["anthropic", "openai"].map((p) => (
+              <button key={p} onClick={() => setDefaultProvider(p)} className="flex-1 px-3 py-2.5 rounded-md text-sm font-medium capitalize transition-colors" style={{ background: defaultProvider === p ? "var(--bg-hover)" : "var(--bg-card)", border: `1px solid ${defaultProvider === p ? "var(--text-primary)" : "var(--border)"}`, color: defaultProvider === p ? "var(--text-primary)" : "var(--text-muted)" }}>
+                {p}
               </button>
             ))}
           </div>
         </section>
 
-        {/* API Keys */}
-        <section className="rounded-xl p-6" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
-          <h3 className="font-semibold mb-4" style={{ color: "var(--text-primary)" }}>API Keys</h3>
-          <div className="space-y-4">
+        <section>
+          <h3 className="text-sm font-medium mb-3" style={{ color: "var(--text-primary)" }}>API Keys</h3>
+          <div className="space-y-3">
             <div>
-              <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>Anthropic API Key</label>
-              <input type="password" value={anthropicKey} onChange={(e) => setAnthropicKey(e.target.value)} placeholder="sk-ant-..." className="w-full px-3 py-2.5 rounded-lg text-sm" style={inputStyle} />
+              <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Anthropic</label>
+              <input type="password" value={anthropicKey} onChange={(e) => setAnthropicKey(e.target.value)} placeholder="sk-ant-..." className={inputCls} style={inputStyle} />
             </div>
             <div>
-              <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>OpenAI API Key</label>
-              <input type="password" value={openaiKey} onChange={(e) => setOpenaiKey(e.target.value)} placeholder="sk-..." className="w-full px-3 py-2.5 rounded-lg text-sm" style={inputStyle} />
-            </div>
-          </div>
-        </section>
-
-        {/* Budget */}
-        <section className="rounded-xl p-6" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
-          <h3 className="font-semibold mb-4" style={{ color: "var(--text-primary)" }}>Budget Limits</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>Max Cost per Run (USD)</label>
-              <input type="number" value={maxCost} onChange={(e) => setMaxCost(e.target.value)} step="0.01" min="0" className="w-full px-3 py-2.5 rounded-lg text-sm" style={inputStyle} />
-            </div>
-            <div>
-              <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>Max Tokens per Run</label>
-              <input type="number" value={maxTokens} onChange={(e) => setMaxTokens(e.target.value)} step="1000" min="0" className="w-full px-3 py-2.5 rounded-lg text-sm" style={inputStyle} />
+              <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>OpenAI</label>
+              <input type="password" value={openaiKey} onChange={(e) => setOpenaiKey(e.target.value)} placeholder="sk-..." className={inputCls} style={inputStyle} />
             </div>
           </div>
         </section>
 
-        <button onClick={handleSave} className="px-6 py-2.5 rounded-lg text-sm font-medium text-white" style={{ background: saved ? "var(--success)" : "var(--accent)" }}>
-          {saved ? "Saved!" : "Save Settings"}
+        <section>
+          <h3 className="text-sm font-medium mb-3" style={{ color: "var(--text-primary)" }}>Budget Limits</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Max cost per run (USD)</label>
+              <input type="number" value={maxCost} onChange={(e) => setMaxCost(e.target.value)} step="0.01" className={inputCls} style={inputStyle} />
+            </div>
+            <div>
+              <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Max tokens per run</label>
+              <input type="number" value={maxTokens} onChange={(e) => setMaxTokens(e.target.value)} step="1000" className={inputCls} style={inputStyle} />
+            </div>
+          </div>
+        </section>
+
+        <button onClick={handleSave} className="px-4 py-2 rounded-md text-sm font-medium" style={{ background: saved ? "var(--success)" : "var(--text-primary)", color: "var(--bg-primary)" }}>
+          {saved ? "Saved" : "Save Changes"}
         </button>
       </div>
     </div>
