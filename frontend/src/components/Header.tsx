@@ -2,6 +2,31 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
+
+function UserMenu() {
+  const { user, signOut } = useAuth();
+  const [open, setOpen] = useState(false);
+  const initial = user?.email?.[0]?.toUpperCase() || "?";
+
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen(!open)} className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium" style={{ background: "var(--bg-hover)", color: "var(--text-secondary)" }}>
+        {initial}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-9 w-48 rounded-lg py-1 shadow-xl z-50" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
+          <div className="px-3 py-2 text-xs truncate" style={{ color: "var(--text-muted)", borderBottom: "1px solid var(--border)" }}>
+            {user?.email || "Not signed in"}
+          </div>
+          <button onClick={() => { signOut(); setOpen(false); }} className="w-full text-left px-3 py-2 text-xs transition-colors" style={{ color: "var(--text-secondary)" }}>
+            Sign Out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface Project {
   id: string;
@@ -76,9 +101,7 @@ export default function Header() {
           )}
         </div>
       </div>
-      <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium" style={{ background: "var(--bg-hover)", color: "var(--text-secondary)" }}>
-        U
-      </div>
+      <UserMenu />
     </header>
   );
 }
