@@ -1,4 +1,6 @@
 """Fetch available models from LLM provider APIs dynamically."""
+import time
+
 import structlog
 import httpx
 
@@ -6,13 +8,16 @@ from backend.core.providers.key_store import get_api_key, get_base_url
 
 logger = structlog.get_logger()
 
-_models_cache: dict[str, list[dict]] = {}
+CACHE_TTL = 86400  # 24 hours
+_models_cache: dict[str, tuple[float, list[dict]]] = {}
 
 
-async def fetch_models(provider: str) -> list[dict[str, str]]:
+async def fetch_models(provider: str, force_refresh: bool = False) -> list[dict[str, str]]:
     """Fetch available models from a provider's API. Returns list of {id, name}."""
-    if provider in _models_cache:
-        return _models_cache[provider]
+    if not force_refresh and provider in _models_cache:
+        cached_at, models = _models_cache[provider]
+        if time.time() - cached_at < CACHE_TTL:
+            return models
 
     api_key = get_api_key(provider)
     if not api_key:
@@ -21,7 +26,7 @@ async def fetch_models(provider: str) -> list[dict[str, str]]:
     try:
         models = await _fetch_from_provider(provider, api_key)
         if models:
-            _models_cache[provider] = models
+            _models_cache[provider] = (time.time(), models)
         return models
     except Exception as e:
         logger.warning("model_fetch_error", provider=provider, error=str(e))

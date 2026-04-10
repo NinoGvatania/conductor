@@ -157,17 +157,7 @@ function ChatContent() {
                   </optgroup>
                 ))
               ) : (
-                <>
-                  <optgroup label="Anthropic">
-                    <option value="claude-haiku-4-5-20251001">Claude Haiku</option>
-                    <option value="claude-sonnet-4-6">Claude Sonnet</option>
-                    <option value="claude-opus-4-6">Claude Opus</option>
-                  </optgroup>
-                  <optgroup label="OpenAI">
-                    <option value="gpt-4o-mini">GPT-4o Mini</option>
-                    <option value="gpt-4o">GPT-4o</option>
-                  </optgroup>
-                </>
+                <option value="" disabled>No providers connected — go to Settings</option>
               )}
             </select>
           </div>

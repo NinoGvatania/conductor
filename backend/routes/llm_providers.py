@@ -102,16 +102,10 @@ async def get_catalog():
 
 
 @router.get("/{provider_name}/models")
-async def get_provider_models(provider_name: str):
+async def get_provider_models(provider_name: str, refresh: bool = False):
     """Fetch available models from a connected provider's API."""
     from backend.core.providers.model_fetcher import fetch_models
-    models = await fetch_models(provider_name)
-    if not models:
-        # Fallback to catalog defaults
-        for p in PROVIDER_CATALOG:
-            if p["id"] == provider_name:
-                return p.get("models", [])
-        return []
+    models = await fetch_models(provider_name, force_refresh=refresh)
     return models
 
 
