@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import ToolPicker from "@/components/ToolPicker";
 
 export default function EditAgentPage() {
   const params = useParams();
@@ -11,6 +12,7 @@ export default function EditAgentPage() {
   const agentId = params.id as string;
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [showToolPicker, setShowToolPicker] = useState(false);
   const [form, setForm] = useState({
     name: "", description: "", purpose: "", provider: "anthropic", model_tier: "balanced",
     system_prompt: "", temperature: 0, timeout_seconds: 120, max_retries: 3, max_tokens: 4096,
@@ -118,8 +120,21 @@ export default function EditAgentPage() {
         <div>
           <div className="flex justify-between items-center mb-2">
             <label className="text-xs" style={{ color: "var(--text-muted)" }}>Tools</label>
-            <button onClick={() => update("tools", [...form.tools, { name: "", description: "" }])} className="text-xs" style={{ color: "var(--accent)" }}>+ Add</button>
+            <div className="flex gap-2">
+              <button onClick={() => setShowToolPicker(true)} className="text-xs px-2 py-0.5 rounded" style={{ color: "#0cce6b", border: "1px solid var(--border)" }}>From Library</button>
+              <button onClick={() => update("tools", [...form.tools, { name: "", description: "" }])} className="text-xs" style={{ color: "var(--accent-light, #3291ff)" }}>+ Manual</button>
+            </div>
           </div>
+          {showToolPicker && (
+            <ToolPicker
+              selectedNames={form.tools.map((t) => t.name)}
+              onSelect={(picked) => {
+                const newTools = picked.map((t) => ({ name: t.name, description: t.description }));
+                update("tools", [...form.tools, ...newTools]);
+              }}
+              onClose={() => setShowToolPicker(false)}
+            />
+          )}
           {form.tools.map((t, i) => (
             <div key={i} className="flex gap-2 mb-2">
               <input value={t.name} onChange={(e) => { const arr = [...form.tools]; arr[i] = { ...arr[i], name: e.target.value }; update("tools", arr); }} placeholder="Name" className="flex-1 px-3 py-2 rounded-md text-sm" style={inputStyle} />
