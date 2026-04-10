@@ -166,7 +166,23 @@ async def get_agent(agent_id: str):
     result = client.table("agents").select("*").eq("id", agent_id).single().execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Agent not found")
-    return result.data
+
+    # Resolve stored tools against current library — filter out deleted
+    data = result.data
+    stored_tools = data.get("tools") or []
+    fresh_tools = []
+    for t in stored_tools:
+        tool_name = t.get("name") if isinstance(t, dict) else None
+        if tool_name:
+            try:
+                tr = client.table("tools").select("id, name, description, method, url").eq("name", tool_name).execute()
+                if tr.data:
+                    fresh_tools.append(tr.data[0])
+                # Skip deleted tools (don't add to list)
+            except Exception:
+                pass
+    data["tools"] = fresh_tools
+    return data
 
 
 @router.put("/{agent_id}")

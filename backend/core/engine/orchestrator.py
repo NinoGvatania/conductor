@@ -210,7 +210,22 @@ class OrchestrationEngine:
                         "max_retries": row.get("max_retries", 3),
                         "max_tokens": row.get("max_tokens", 4096),
                     }
-                    agent_tools = row.get("tools", []) or []
+                    agent_tools_raw = row.get("tools", []) or []
+                    # Resolve tool names to full configs from library
+                    for t in agent_tools_raw:
+                        tool_name = t.get("name") if isinstance(t, dict) else None
+                        if tool_name:
+                            try:
+                                tool_result = client.table("tools").select("*").eq("name", tool_name).execute()
+                                if tool_result.data:
+                                    # Use fresh config from library (includes connection_id)
+                                    agent_tools.append(tool_result.data[0])
+                                    continue
+                            except Exception:
+                                pass
+                        # Fallback: use the tool dict as-is
+                        if isinstance(t, dict) and t.get("url"):
+                            agent_tools.append(t)
             except Exception as e:
                 logger.warning("agent_db_lookup_failed", agent=agent_name, error=str(e))
 

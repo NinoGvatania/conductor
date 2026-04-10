@@ -123,7 +123,19 @@ async def _execute_tool_call(tool_name: str, tool_input: dict[str, Any]) -> str:
                         "timeout_seconds": row.get("timeout_seconds", 120),
                         "max_retries": row.get("max_retries", 3), "max_tokens": row.get("max_tokens", 4096),
                     }
-                    agent_tools = row.get("tools", []) or []
+                    agent_tools_raw = row.get("tools", []) or []
+                    for t in agent_tools_raw:
+                        tool_name = t.get("name") if isinstance(t, dict) else None
+                        if tool_name:
+                            try:
+                                tool_result = client.table("tools").select("*").eq("name", tool_name).execute()
+                                if tool_result.data:
+                                    agent_tools.append(tool_result.data[0])
+                                    continue
+                            except Exception:
+                                pass
+                        if isinstance(t, dict) and t.get("url"):
+                            agent_tools.append(t)
 
             if not agent_dict:
                 return json.dumps({"error": f"Agent '{agent_name}' not found"})
