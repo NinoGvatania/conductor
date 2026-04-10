@@ -25,6 +25,7 @@ class ToolCreate(BaseModel):
     body_template: dict[str, Any] = Field(default_factory=dict)
     is_public: bool = False
     project_id: str | None = None
+    connection_id: str | None = None
 
 
 class ToolUpdate(BaseModel):
@@ -43,27 +44,37 @@ class ToolWizardRequest(BaseModel):
     description: str = ""  # optional hint about what the tool should do
 
 
-WIZARD_PROMPT = """You are an API tool configuration generator. Given API documentation or a URL,
-generate a CONCISE JSON array of tool configurations. Extract only the most important endpoints.
+WIZARD_PROMPT = """You are an API tool configuration generator. Given API documentation,
+generate a CONCISE JSON object describing the integration and its tools.
 
 Rules:
-- Generate MAX 5-8 most important endpoints (not all)
+- Generate MAX 5-8 most important endpoints
 - Keep descriptions short (1 sentence)
-- Output ONLY valid JSON array, no markdown
-- Use {api_key} or {token} placeholders in auth headers
+- Output ONLY valid JSON, no markdown
+- Use {api_key}, {token}, {username}, {password} placeholders for secrets
+- Identify the base_url if all endpoints share a common prefix
 
-Schema for each tool:
+Output schema:
 {
-  "name": "snake_case_name",
-  "description": "Short description",
-  "url": "https://api.example.com/endpoint",
-  "method": "GET|POST|PUT|DELETE",
-  "headers": {"Authorization": "Bearer {api_key}"},
-  "parameters": {
-    "type": "object",
-    "properties": {"param": {"type": "string"}},
-    "required": ["param"]
-  }
+  "app_name": "Telegram" or "OpenWeather" etc,
+  "description": "Short description of this integration",
+  "base_url": "https://api.example.com",
+  "auth_type": "api_key" | "bearer" | "basic" | "none",
+  "credential_keys": ["api_key"] or ["username", "password"],
+  "tools": [
+    {
+      "name": "snake_case_name",
+      "description": "Short description",
+      "url": "https://api.example.com/endpoint" or "/endpoint" relative to base_url,
+      "method": "GET|POST|PUT|DELETE",
+      "headers": {"Authorization": "Bearer {api_key}"},
+      "parameters": {
+        "type": "object",
+        "properties": {"param": {"type": "string"}},
+        "required": ["param"]
+      }
+    }
+  ]
 }"""
 
 
@@ -81,6 +92,7 @@ async def tool_wizard(request: ToolWizardRequest):
         max_tokens=8192,
     )
 
+    content = ""
     try:
         response = await provider.complete(llm_request)
         content = response.content.strip()
@@ -90,30 +102,46 @@ async def tool_wizard(request: ToolWizardRequest):
             lines = content.split("\n")
             content = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
 
-        # Extract JSON array
-        start = content.find("[")
-        end = content.rfind("]")
+        # Extract JSON object (not array)
+        start = content.find("{")
+        end = content.rfind("}")
         if start >= 0 and end > start:
             content = content[start:end + 1]
 
         try:
-            tools = json.loads(content)
+            parsed = json.loads(content)
         except json.JSONDecodeError:
-            # Try to repair incomplete JSON by removing last incomplete object
-            last_comma = content.rfind("},")
-            if last_comma > 0:
-                content = content[:last_comma + 1] + "]"
-                tools = json.loads(content)
+            # Try to repair by closing braces
+            last_complete = content.rfind("},")
+            if last_complete > 0:
+                content = content[:last_complete + 1] + "]}"
+                parsed = json.loads(content)
             else:
                 raise
 
-        if not isinstance(tools, list):
-            tools = [tools]
+        # Backward compat: if AI returned a bare list, wrap it
+        if isinstance(parsed, list):
+            parsed = {
+                "app_name": "Custom Integration",
+                "description": "",
+                "base_url": "",
+                "auth_type": "api_key",
+                "credential_keys": ["api_key"],
+                "tools": parsed,
+            }
 
-        return {"tools": tools, "count": len(tools)}
+        return {
+            "app_name": parsed.get("app_name", "Integration"),
+            "description": parsed.get("description", ""),
+            "base_url": parsed.get("base_url", ""),
+            "auth_type": parsed.get("auth_type", "api_key"),
+            "credential_keys": parsed.get("credential_keys", ["api_key"]),
+            "tools": parsed.get("tools", []),
+            "count": len(parsed.get("tools", [])),
+        }
     except json.JSONDecodeError as e:
         logger.error("wizard_json_error", error=str(e), content_preview=content[:500] if content else "")
-        raise HTTPException(status_code=422, detail=f"AI returned invalid JSON. Try providing a shorter documentation or more specific focus.") from e
+        raise HTTPException(status_code=422, detail="AI returned invalid JSON. Try shorter docs or more specific focus.") from e
     except Exception as e:
         logger.error("wizard_error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e)) from e

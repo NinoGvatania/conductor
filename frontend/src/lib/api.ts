@@ -52,6 +52,18 @@ export const api = {
   generateToolsFromDocs: (apiDocs: string, description = "") =>
     request("/api/tools/wizard", { method: "POST", body: JSON.stringify({ api_docs: apiDocs, description }) }),
 
+  // Connections (integrations)
+  listConnections: (projectId?: string) =>
+    request(`/api/connections${projectId ? `?project_id=${projectId}` : ""}`),
+  getConnection: (id: string) => request(`/api/connections/${id}`),
+  createConnection: (conn: Record<string, unknown>) =>
+    request("/api/connections", { method: "POST", body: JSON.stringify(conn) }),
+  updateConnection: (id: string, data: Record<string, unknown>) =>
+    request(`/api/connections/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteConnection: (id: string) =>
+    request(`/api/connections/${id}`, { method: "DELETE" }),
+  getConnectionTools: (id: string) => request(`/api/connections/${id}/tools`),
+
   // Workflows
   listWorkflows: () => request("/api/workflows"),
   getWorkflowLibrary: () => request("/api/workflows/library"),

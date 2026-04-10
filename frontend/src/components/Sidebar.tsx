@@ -17,7 +17,7 @@ const navItems = [
   { href: "/", label: "Dashboard" },
   { href: "/workflows", label: "Workflows" },
   { href: "/agents", label: "Agents" },
-  { href: "/tools", label: "Tools" },
+  { href: "/tools", label: "Integrations" },
   { href: "/settings", label: "Settings" },
 ];
 

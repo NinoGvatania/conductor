@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.routes import agents, approvals, chat, runs, workflows
-from backend.routes import projects, conversations, tools, llm_providers, files
+from backend.routes import projects, conversations, tools, llm_providers, files, connections
 
 structlog.configure(
     processors=[
@@ -30,6 +30,7 @@ app.add_middleware(
 app.include_router(projects.router)
 app.include_router(conversations.router)
 app.include_router(agents.router)
+app.include_router(connections.router)
 app.include_router(tools.router)
 app.include_router(workflows.router)
 app.include_router(runs.router)
