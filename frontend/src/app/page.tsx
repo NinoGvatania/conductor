@@ -4,10 +4,12 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { formatCost, formatDate } from "@/lib/utils";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 
 interface Run { id: string; workflow_id: string; status: string; total_cost_usd: number; total_tokens: number; total_steps: number; created_at: string; }
 
-const dot: Record<string, string> = { running: "var(--accent)", completed: "#0cce6b", failed: "#ee0000", paused: "#f5a623" };
+const dot: Record<string, string> = { running: "#3b82f6", completed: "#0cce6b", failed: "#ee0000", paused: "#f5a623" };
+const PIE_COLORS = ["#0cce6b", "#ee0000", "#3b82f6", "#f5a623"];
 
 export default function Dashboard() {
   const [runs, setRuns] = useState<Run[]>([]);
@@ -19,61 +21,122 @@ export default function Dashboard() {
   }, []);
 
   const completed = runs.filter((r) => r.status === "completed").length;
+  const failed = runs.filter((r) => r.status === "failed").length;
   const totalCost = runs.reduce((s, r) => s + (r.total_cost_usd || 0), 0);
   const totalTokens = runs.reduce((s, r) => s + (r.total_tokens || 0), 0);
+
+  // Chart data: cost per run (last 10)
+  const costData = runs.slice(0, 10).reverse().map((r, i) => ({
+    name: `#${i + 1}`,
+    cost: r.total_cost_usd || 0,
+    tokens: r.total_tokens || 0,
+  }));
+
+  // Pie data: status distribution
+  const statusCounts = [
+    { name: "Completed", value: completed },
+    { name: "Failed", value: failed },
+    { name: "Running", value: runs.filter((r) => r.status === "running").length },
+    { name: "Paused", value: runs.filter((r) => r.status === "paused").length },
+  ].filter((s) => s.value > 0);
 
   return (
     <div>
       <h1 className="text-2xl font-semibold tracking-tight mb-6" style={{ color: "var(--text-primary)" }}>Dashboard</h1>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-3 mb-8">
+      <div className="grid grid-cols-4 gap-3 mb-6">
         {[
           { label: "Total Runs", value: runs.length },
-          { label: "Completed", value: `${completed}/${runs.length}` },
+          { label: "Success Rate", value: runs.length > 0 ? `${Math.round((completed / runs.length) * 100)}%` : "—" },
           { label: "Total Cost", value: `$${totalCost.toFixed(4)}` },
           { label: "Tokens Used", value: totalTokens.toLocaleString() },
         ].map((c) => (
           <div key={c.label} className="p-4 rounded-lg" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
-            <div className="text-xs mb-1" style={{ color: "var(--text-muted)" }}>{c.label}</div>
+            <div className="text-[10px] uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>{c.label}</div>
             <div className="text-xl font-semibold" style={{ color: "var(--text-primary)" }}>{c.value}</div>
           </div>
         ))}
       </div>
 
-      {/* Active agents */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>Agents ({agents.length})</h2>
-          <Link href="/agents" className="text-xs" style={{ color: "var(--text-muted)" }}>View all →</Link>
+      {/* Charts */}
+      <div className="grid grid-cols-2 gap-3 mb-6">
+        {/* Cost per run */}
+        <div className="rounded-lg p-4" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
+          <div className="text-xs font-medium mb-3" style={{ color: "var(--text-muted)" }}>Cost per Run (last 10)</div>
+          {costData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart data={costData}>
+                <XAxis dataKey="name" tick={{ fill: "#666", fontSize: 10 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: "#666", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${v}`} />
+                <Tooltip contentStyle={{ background: "#111", border: "1px solid #333", borderRadius: 8, fontSize: 12 }} labelStyle={{ color: "#888" }} />
+                <Bar dataKey="cost" fill="#6366f1" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-[180px] flex items-center justify-center text-xs" style={{ color: "var(--text-muted)" }}>No data yet</div>
+          )}
         </div>
-        <div className="flex gap-2 flex-wrap">
-          {agents.slice(0, 8).map((a, i) => (
-            <div key={i} className="px-3 py-1.5 rounded-md text-xs" style={{ background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}>
-              {a.name as string}
-              <span className="ml-1.5 text-[10px]" style={{ color: "var(--text-muted)" }}>{a.model_tier as string}</span>
+
+        {/* Status distribution */}
+        <div className="rounded-lg p-4" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
+          <div className="text-xs font-medium mb-3" style={{ color: "var(--text-muted)" }}>Run Status Distribution</div>
+          {statusCounts.length > 0 ? (
+            <div className="flex items-center gap-4">
+              <ResponsiveContainer width={140} height={140}>
+                <PieChart>
+                  <Pie data={statusCounts} dataKey="value" cx="50%" cy="50%" innerRadius={35} outerRadius={60} paddingAngle={3}>
+                    {statusCounts.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="space-y-2">
+                {statusCounts.map((s, i) => (
+                  <div key={s.name} className="flex items-center gap-2 text-xs">
+                    <span className="w-2 h-2 rounded-full" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                    <span style={{ color: "var(--text-secondary)" }}>{s.name}: {s.value}</span>
+                  </div>
+                ))}
+              </div>
             </div>
+          ) : (
+            <div className="h-[140px] flex items-center justify-center text-xs" style={{ color: "var(--text-muted)" }}>No data yet</div>
+          )}
+        </div>
+      </div>
+
+      {/* Active agents */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>Active Agents ({agents.length})</span>
+          <Link href="/agents" className="text-[10px]" style={{ color: "var(--text-muted)" }}>View all →</Link>
+        </div>
+        <div className="flex gap-1.5 flex-wrap">
+          {agents.slice(0, 10).map((a, i) => (
+            <span key={i} className="px-2 py-1 rounded text-[11px]" style={{ background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}>
+              {a.name as string}
+            </span>
           ))}
         </div>
       </div>
 
-      {/* Runs history */}
+      {/* Run History */}
       <div>
-        <h2 className="text-sm font-medium mb-3" style={{ color: "var(--text-primary)" }}>Run History</h2>
-        <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+        <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>Run History</span>
+        <div className="rounded-lg overflow-hidden mt-2" style={{ border: "1px solid var(--border)" }}>
           <table className="w-full">
             <thead>
               <tr style={{ background: "var(--bg-card)" }}>
                 {["Status", "Workflow", "Cost", "Tokens", "Steps", "Date"].map((h) => (
-                  <th key={h} className="px-3 py-2 text-left text-xs font-medium" style={{ color: "var(--text-muted)", borderBottom: "1px solid var(--border)" }}>{h}</th>
+                  <th key={h} className="px-3 py-2 text-left text-[10px] font-medium uppercase tracking-wider" style={{ color: "var(--text-muted)", borderBottom: "1px solid var(--border)" }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {runs.slice(0, 20).map((r) => (
+              {runs.slice(0, 15).map((r) => (
                 <tr key={r.id} style={{ borderBottom: "1px solid var(--border)" }}>
                   <td className="px-3 py-2 flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: dot[r.status] || "var(--text-muted)" }} />
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: dot[r.status] || "#666" }} />
                     <span className="text-xs capitalize" style={{ color: "var(--text-secondary)" }}>{r.status}</span>
                   </td>
                   <td className="px-3 py-2"><Link href={`/runs/${r.id}`} className="text-xs hover:underline" style={{ color: "var(--text-primary)" }}>{r.workflow_id.slice(0, 8)}</Link></td>
@@ -85,7 +148,7 @@ export default function Dashboard() {
               ))}
             </tbody>
           </table>
-          {runs.length === 0 && <div className="py-8 text-center text-xs" style={{ color: "var(--text-muted)" }}>No runs yet. Go to Chat to start.</div>}
+          {runs.length === 0 && <div className="py-8 text-center text-xs" style={{ color: "var(--text-muted)" }}>No runs yet</div>}
         </div>
       </div>
     </div>
