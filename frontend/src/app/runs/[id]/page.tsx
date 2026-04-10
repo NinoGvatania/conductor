@@ -26,7 +26,7 @@ export default function RunDetailPage() {
   const [expanded, setExpanded] = useState<string | null>(null);
 
   useEffect(() => {
-    api.getRun(runId).then((d) => setRun(d as RunDetail)).catch(() => {});
+    api.getRun(runId).then((d) => setRun(d as RunDetail)).catch((e) => console.error(e));
   }, [runId]);
 
   if (!run) return <div className="text-sm" style={{ color: "var(--text-muted)" }}>Loading...</div>;

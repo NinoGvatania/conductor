@@ -24,7 +24,7 @@ export default function AgentsPage() {
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    api.listAgents().then((d) => setAgents(d as Agent[])).catch(() => {});
+    api.listAgents().then((d) => setAgents(d as Agent[])).catch((e) => console.error(e));
   }, []);
 
   const filtered = agents

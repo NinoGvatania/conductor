@@ -43,6 +43,7 @@ export const api = {
   // Tools
   listTools: (projectId?: string) =>
     request(`/api/tools${projectId ? `?project_id=${projectId}` : ""}`),
+  getTool: (id: string) => request(`/api/tools/${id}`),
   createTool: (tool: Record<string, unknown>) =>
     request("/api/tools", { method: "POST", body: JSON.stringify(tool) }),
   updateTool: (id: string, data: Record<string, unknown>) =>

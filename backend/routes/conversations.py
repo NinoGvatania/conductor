@@ -20,32 +20,161 @@ class MessageSend(BaseModel):
     project_id: str | None = None
 
 
-class ApprovalResponse(BaseModel):
-    decision: str  # "approve" or "reject"
-    comment: str = ""
+class AgentMessage(BaseModel):
+    agent_name: str
+    content: str
+    project_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-ORCHESTRATOR_PROMPT = """You are AgentFlow orchestrator. The user gives you tasks.
+def _build_orchestrator_tools() -> list[dict[str, Any]]:
+    """Build tool definitions that let the orchestrator execute real actions."""
+    return [
+        {
+            "name": "run_agent",
+            "description": "Run a specific AI agent with a task. Use this when the user asks to classify, extract, validate, score risk, make decisions, or draft text.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "agent_name": {"type": "string", "description": "Name of the agent: classifier, extractor, validator, risk_scorer, decision_maker, draft_writer, or any custom agent name"},
+                    "task": {"type": "string", "description": "The task/input for the agent to process"},
+                },
+                "required": ["agent_name", "task"],
+            },
+        },
+        {
+            "name": "run_tool",
+            "description": "Execute an API tool directly (send message, create record, etc). Use when user asks to interact with external services.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "tool_name": {"type": "string", "description": "Name of the tool to execute"},
+                    "arguments": {"type": "object", "description": "Arguments to pass to the tool"},
+                },
+                "required": ["tool_name", "arguments"],
+            },
+        },
+        {
+            "name": "start_workflow",
+            "description": "Start a saved workflow by name or ID. Use when user asks to run a full process/pipeline.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "workflow_name": {"type": "string", "description": "Name or ID of the workflow to run"},
+                    "input_data": {"type": "object", "description": "Input data for the workflow"},
+                },
+                "required": ["workflow_name"],
+            },
+        },
+    ]
 
-You have these agents available:
-- classifier: classifies documents/requests (fast)
-- extractor: extracts structured data from text (balanced)
-- validator: checks data completeness (balanced)
-- risk_scorer: assesses risk (powerful)
-- decision_maker: approve/reject/escalate decisions (powerful)
-- draft_writer: writes professional text (balanced)
 
-Also check if the user has custom agents and tools configured.
+def _build_system_prompt(agents: list[dict], tools: list[dict], workflows: list[dict]) -> str:
+    agent_list = ", ".join(a.get("name", "") for a in agents) if agents else "classifier, extractor, validator, risk_scorer, decision_maker, draft_writer"
+    tool_list = ", ".join(t.get("name", "") for t in tools) if tools else "(no tools configured)"
+    wf_list = ", ".join(w.get("name", "") for w in workflows) if workflows else "(no workflows saved)"
+
+    return f"""You are AgentFlow orchestrator. You manage AI agents, tools, and workflows.
+
+Available agents: {agent_list}
+Available tools: {tool_list}
+Available workflows: {wf_list}
 
 When the user gives you a task:
-1. Analyze what needs to be done
-2. Propose a plan: which agents/tools to use and in what order
-3. Ask for approval: "Shall I proceed with this plan?"
-4. After approval, execute step by step
+1. Decide which agents/tools/workflows to use
+2. Propose a plan and ask for approval
+3. After approval, USE THE TOOLS to execute (run_agent, run_tool, start_workflow)
+4. Report results back to the user
 
-Always respond in the user's language.
-Format your plan clearly with numbered steps.
-If you need clarification, ask."""
+Always respond in the user's language. Be concise and actionable.
+When you need to execute something, ALWAYS use the provided tools — don't just describe what you would do."""
+
+
+async def _execute_tool_call(tool_name: str, tool_input: dict[str, Any]) -> str:
+    """Execute a tool call from the orchestrator and return the result as text."""
+    try:
+        if tool_name == "run_agent":
+            from backend.core.agents.runner import AgentRunner
+            from backend.core.contracts.agent import AgentContract
+            from backend.core.providers.anthropic import AnthropicProvider
+
+            agent_name = tool_input["agent_name"]
+            task = tool_input["task"]
+
+            # Load agent config
+            from backend.core.engine.orchestrator import BUILTIN_AGENTS, _load_builtin_agents
+            if not BUILTIN_AGENTS:
+                _load_builtin_agents()
+
+            agent_dict = BUILTIN_AGENTS.get(agent_name)
+            agent_tools: list[dict] = []
+
+            if not agent_dict:
+                client = get_supabase_client()
+                result = client.table("agents").select("*").eq("name", agent_name).execute()
+                if result.data:
+                    row = result.data[0]
+                    agent_dict = {
+                        "name": row["name"], "description": row.get("description", ""),
+                        "purpose": row.get("purpose", ""), "model_tier": row.get("model_tier", "balanced"),
+                        "system_prompt": row.get("system_prompt", ""), "output_schema": row.get("output_schema", {}),
+                        "temperature": float(row.get("temperature", 0)),
+                        "timeout_seconds": row.get("timeout_seconds", 120),
+                        "max_retries": row.get("max_retries", 3), "max_tokens": row.get("max_tokens", 4096),
+                    }
+                    agent_tools = row.get("tools", []) or []
+
+            if not agent_dict:
+                return json.dumps({"error": f"Agent '{agent_name}' not found"})
+
+            provider = AnthropicProvider()
+            model_router = ModelRouter()
+            runner = AgentRunner(provider, model_router)
+            contract = AgentContract(**agent_dict)
+            step = await runner.run(contract, task, tools=agent_tools)
+            return json.dumps({"status": step.status, "output": step.output, "tokens": step.tokens_used}, default=str)
+
+        elif tool_name == "run_tool":
+            from backend.core.tools.executor import execute_api_tool
+
+            t_name = tool_input["tool_name"]
+            args = tool_input.get("arguments", {})
+
+            client = get_supabase_client()
+            result = client.table("tools").select("*").eq("name", t_name).execute()
+            if not result.data:
+                return json.dumps({"error": f"Tool '{t_name}' not found"})
+
+            tool_config = result.data[0]
+            api_result = await execute_api_tool(tool_config, args)
+            return json.dumps(api_result, default=str)
+
+        elif tool_name == "start_workflow":
+            from backend.core.contracts.workflow import WorkflowDefinition
+            from backend.core.engine.orchestrator import OrchestrationEngine
+
+            wf_name = tool_input["workflow_name"]
+            input_data = tool_input.get("input_data", {})
+
+            client = get_supabase_client()
+            result = client.table("workflows").select("definition_json").eq("name", wf_name).execute()
+            if not result.data:
+                result = client.table("workflows").select("definition_json").eq("id", wf_name).execute()
+            if not result.data:
+                return json.dumps({"error": f"Workflow '{wf_name}' not found"})
+
+            workflow = WorkflowDefinition.model_validate_json(result.data[0]["definition_json"])
+            engine = OrchestrationEngine()
+            run_state = await engine.start(workflow, input_data)
+            return json.dumps({
+                "run_id": run_state.run_id, "status": run_state.status,
+                "steps_completed": run_state.total_steps, "tokens": run_state.total_tokens,
+            }, default=str)
+
+        return json.dumps({"error": f"Unknown tool: {tool_name}"})
+    except Exception as e:
+        logger.error("tool_execution_error", tool=tool_name, error=str(e))
+        return json.dumps({"error": str(e)})
 
 
 @router.get("")
@@ -73,11 +202,9 @@ async def create_conversation(project_id: str | None = None, title: str = "New C
 async def get_messages(conversation_id: str):
     client = get_supabase_client()
     result = (
-        client.table("messages")
-        .select("*")
+        client.table("messages").select("*")
         .eq("conversation_id", conversation_id)
-        .order("created_at")
-        .execute()
+        .order("created_at").execute()
     )
     return result.data
 
@@ -86,27 +213,34 @@ async def get_messages(conversation_id: str):
 async def send_message(msg: MessageSend):
     client = get_supabase_client()
 
-    # Create conversation if needed
     conv_id = msg.conversation_id
     if not conv_id:
         conv_id = str(uuid.uuid4())
-        conv_data: dict[str, Any] = {
-            "id": conv_id,
-            "title": msg.content[:50],
-            "initiated_by": "user",
-        }
+        conv_data: dict[str, Any] = {"id": conv_id, "title": msg.content[:50], "initiated_by": "user"}
         if msg.project_id:
             conv_data["project_id"] = msg.project_id
         client.table("conversations").insert(conv_data).execute()
 
     # Save user message
-    user_msg_id = str(uuid.uuid4())
     client.table("messages").insert({
-        "id": user_msg_id,
-        "conversation_id": conv_id,
-        "role": "user",
-        "content": msg.content,
+        "id": str(uuid.uuid4()), "conversation_id": conv_id,
+        "role": "user", "content": msg.content,
     }).execute()
+
+    # Load context: agents, tools, workflows
+    agents, tools, workflows = [], [], []
+    try:
+        agents = client.table("agents").select("name, description").execute().data or []
+    except Exception:
+        pass
+    try:
+        tools = client.table("tools").select("name, description").execute().data or []
+    except Exception:
+        pass
+    try:
+        workflows = client.table("workflows").select("id, name").execute().data or []
+    except Exception:
+        pass
 
     # Load conversation history
     history = client.table("messages").select("role, content").eq(
@@ -118,24 +252,51 @@ async def send_message(msg: MessageSend):
         role = "user" if m["role"] == "user" else "assistant"
         messages.append({"role": role, "content": m["content"]})
 
-    # Call LLM
+    # Call LLM with tools
     from backend.core.providers.anthropic import AnthropicProvider
     from backend.core.providers.base import LLMRequest
 
     provider = AnthropicProvider()
     model_router = ModelRouter()
+    orchestrator_tools = _build_orchestrator_tools()
 
     request = LLMRequest(
         model=model_router.resolve("balanced"),
-        system_prompt=ORCHESTRATOR_PROMPT,
+        system_prompt=_build_system_prompt(agents, tools, workflows),
         messages=messages,
+        tools=orchestrator_tools,
         temperature=0.3,
-        max_tokens=2048,
+        max_tokens=4096,
     )
 
     try:
         response = await provider.complete(request)
-        assistant_content = response.content
+
+        # Handle tool calls
+        if response.tool_calls:
+            tool_results = []
+            for tc in response.tool_calls:
+                result = await _execute_tool_call(tc["name"], tc["input"])
+                tool_results.append({"tool": tc["name"], "result": json.loads(result)})
+
+            # Build response text
+            assistant_content = response.content or ""
+            if tool_results:
+                assistant_content += "\n\n**Execution Results:**\n"
+                for tr in tool_results:
+                    tool_name = tr["tool"]
+                    res = tr["result"]
+                    if "error" in res:
+                        assistant_content += f"\n- {tool_name}: Error — {res['error']}"
+                    elif tool_name == "run_agent":
+                        assistant_content += f"\n- Agent `{res.get('status', 'done')}` — {json.dumps(res.get('output', ''), ensure_ascii=False, default=str)[:500]}"
+                    elif tool_name == "run_tool":
+                        assistant_content += f"\n- Tool result: {json.dumps(res.get('data', res), ensure_ascii=False, default=str)[:300]}"
+                    elif tool_name == "start_workflow":
+                        assistant_content += f"\n- Workflow run `{res.get('run_id', '')[:8]}` — status: {res.get('status', 'unknown')}, steps: {res.get('steps_completed', 0)}"
+        else:
+            assistant_content = response.content
+
     except Exception as e:
         logger.error("chat_error", error=str(e))
         assistant_content = f"Error: {e}"
@@ -143,64 +304,41 @@ async def send_message(msg: MessageSend):
     # Save assistant message
     assistant_msg_id = str(uuid.uuid4())
     client.table("messages").insert({
-        "id": assistant_msg_id,
-        "conversation_id": conv_id,
-        "role": "assistant",
-        "content": assistant_content,
-        "metadata": json.dumps({
-            "tokens": getattr(response, "input_tokens", 0) + getattr(response, "output_tokens", 0),
-            "model": getattr(response, "model", ""),
-        }),
+        "id": assistant_msg_id, "conversation_id": conv_id,
+        "role": "assistant", "content": assistant_content,
     }).execute()
 
-    # Update conversation title if first message
+    # Update title
     if len(history.data) <= 1:
-        client.table("conversations").update(
-            {"title": msg.content[:50], "updated_at": "now()"}
-        ).eq("id", conv_id).execute()
+        try:
+            client.table("conversations").update({"title": msg.content[:50]}).eq("id", conv_id).execute()
+        except Exception:
+            pass
 
     return {
         "conversation_id": conv_id,
-        "message": {
-            "id": assistant_msg_id,
-            "role": "assistant",
-            "content": assistant_content,
-        },
+        "message": {"id": assistant_msg_id, "role": "assistant", "content": assistant_content},
     }
-
-
-class AgentMessage(BaseModel):
-    agent_name: str
-    content: str
-    project_id: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 @router.post("/agent-initiated")
 async def agent_creates_conversation(msg: AgentMessage):
-    """An agent creates a new conversation to ask the user something (approval, question, notification)."""
     client = get_supabase_client()
     conv_id = str(uuid.uuid4())
     conv_data: dict[str, Any] = {
-        "id": conv_id,
-        "title": f"{msg.agent_name}: {msg.content[:40]}",
-        "initiated_by": "agent",
-        "agent_name": msg.agent_name,
+        "id": conv_id, "title": f"{msg.agent_name}: {msg.content[:40]}",
+        "initiated_by": "agent", "agent_name": msg.agent_name,
     }
     if msg.project_id:
         conv_data["project_id"] = msg.project_id
     client.table("conversations").insert(conv_data).execute()
 
-    msg_id = str(uuid.uuid4())
     client.table("messages").insert({
-        "id": msg_id,
-        "conversation_id": conv_id,
-        "role": "agent",
-        "content": msg.content,
+        "id": str(uuid.uuid4()), "conversation_id": conv_id,
+        "role": "agent", "content": msg.content,
         "metadata": json.dumps({"agent_name": msg.agent_name, **msg.metadata}),
     }).execute()
 
-    logger.info("agent_initiated_chat", agent=msg.agent_name, conv_id=conv_id)
     return {"conversation_id": conv_id, "agent_name": msg.agent_name}
 
 

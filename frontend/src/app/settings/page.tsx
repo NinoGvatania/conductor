@@ -15,8 +15,8 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    api.getProviderCatalog().then((c) => setCatalog(c as ProviderInfo[])).catch(() => {});
-    api.listConnectedProviders().then((c) => setConnected(c as ConnectedProvider[])).catch(() => {});
+    api.getProviderCatalog().then((c) => setCatalog(c as ProviderInfo[])).catch((e) => console.error(e));
+    api.listConnectedProviders().then((c) => setConnected(c as ConnectedProvider[])).catch((e) => console.error(e));
   }, []);
 
   function isConnected(providerId: string): boolean {

@@ -19,9 +19,9 @@ export default function Dashboard() {
   const [agents, setAgents] = useState<Array<Record<string, unknown>>>([]);
 
   useEffect(() => {
-    api.listRuns().then((r) => setRuns(r as Run[])).catch(() => {});
-    api.getTokenStats().then((s) => setStats(s as TokenStats)).catch(() => {});
-    api.listAgents().then((a) => setAgents(a as Array<Record<string, unknown>>)).catch(() => {});
+    api.listRuns().then((r) => setRuns(r as Run[])).catch((e) => console.error(e));
+    api.getTokenStats().then((s) => setStats(s as TokenStats)).catch((e) => console.error(e));
+    api.listAgents().then((a) => setAgents(a as Array<Record<string, unknown>>)).catch((e) => console.error(e));
   }, []);
 
   const completed = runs.filter((r) => r.status === "completed").length;

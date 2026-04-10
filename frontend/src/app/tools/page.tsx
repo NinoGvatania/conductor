@@ -10,7 +10,7 @@ export default function ToolsPage() {
   const [tools, setTools] = useState<Tool[]>([]);
 
   useEffect(() => {
-    api.listTools().then((t) => setTools(t as Tool[])).catch(() => {});
+    api.listTools().then((t) => setTools(t as Tool[])).catch((e) => console.error(e));
   }, []);
 
   return (
@@ -33,14 +33,14 @@ export default function ToolsPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {tools.map((t) => (
-            <div key={t.id} className="rounded-lg p-4" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
+            <Link key={t.id} href={`/tools/${t.id}`} className="rounded-lg p-4 block transition-colors" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{t.name}</span>
                 <span className="text-[10px] px-2 py-0.5 rounded" style={{ background: "var(--bg-hover)", color: "var(--text-muted)" }}>{t.method}</span>
               </div>
               <p className="text-xs mb-2" style={{ color: "var(--text-muted)" }}>{t.description || "No description"}</p>
               <p className="text-[10px] truncate font-mono" style={{ color: "var(--text-muted)" }}>{t.url || "No URL"}</p>
-            </div>
+            </Link>
           ))}
         </div>
       )}

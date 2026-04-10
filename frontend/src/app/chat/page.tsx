@@ -27,7 +27,7 @@ function ChatContent() {
   // Load messages when conversation changes
   useEffect(() => {
     if (activeConv) {
-      api.getMessages(activeConv).then((m) => setMessages(m as Message[])).catch(() => {});
+      api.getMessages(activeConv).then((m) => setMessages(m as Message[])).catch((e) => console.error(e));
     } else {
       setMessages([]);
     }

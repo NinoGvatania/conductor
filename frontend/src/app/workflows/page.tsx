@@ -13,8 +13,8 @@ export default function WorkflowsPage() {
   const [tab, setTab] = useState<"my" | "library">("my");
 
   useEffect(() => {
-    api.listWorkflows().then((w) => setWorkflows(w as Workflow[])).catch(() => {});
-    api.getWorkflowLibrary().then((t) => setTemplates(t as Template[])).catch(() => {});
+    api.listWorkflows().then((w) => setWorkflows(w as Workflow[])).catch((e) => console.error(e));
+    api.getWorkflowLibrary().then((t) => setTemplates(t as Template[])).catch((e) => console.error(e));
   }, []);
 
   async function handleDelete(id: string) {
