@@ -218,12 +218,14 @@ class OrchestrationEngine:
                             try:
                                 tool_result = client.table("tools").select("*").eq("name", tool_name).execute()
                                 if tool_result.data:
-                                    # Use fresh config from library (includes connection_id)
                                     agent_tools.append(tool_result.data[0])
+                                    logger.info("tool_resolved", tool=tool_name)
                                     continue
-                            except Exception:
-                                pass
-                        # Fallback: use the tool dict as-is
+                                else:
+                                    logger.warning("tool_not_in_library", tool=tool_name)
+                            except Exception as te:
+                                logger.warning("tool_lookup_error", tool=tool_name, error=str(te))
+                        # Fallback: use the tool dict as-is only if it has a URL
                         if isinstance(t, dict) and t.get("url"):
                             agent_tools.append(t)
             except Exception as e:

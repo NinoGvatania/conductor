@@ -175,7 +175,7 @@ async def get_agent(agent_id: str):
         tool_name = t.get("name") if isinstance(t, dict) else None
         if tool_name:
             try:
-                tr = client.table("tools").select("id, name, description, method, url").eq("name", tool_name).execute()
+                tr = client.table("tools").select("*").eq("name", tool_name).execute()
                 if tr.data:
                     fresh_tools.append(tr.data[0])
                 # Skip deleted tools (don't add to list)

@@ -76,22 +76,47 @@ async def execute_api_tool(
     if conn_base_url and not url.startswith("http"):
         url = conn_base_url.rstrip("/") + "/" + url.lstrip("/")
 
-    # Replace placeholders in URL with arguments
-    for key, value in arguments.items():
-        url = url.replace(f"{{{key}}}", str(value))
+    # Flatten arguments (if LLM wrapped them in "data")
+    if isinstance(arguments, dict) and "data" in arguments and len(arguments) == 1 and isinstance(arguments["data"], dict):
+        arguments = arguments["data"]
 
-    # Build request body: merge template with LLM arguments
+    # Apply credential defaults from parameter schema (e.g. appid={api_key})
+    params_schema = tool_config.get("parameters", {})
+    if isinstance(params_schema, dict):
+        props = params_schema.get("properties", {}) or {}
+        for key, spec in props.items():
+            if not isinstance(spec, dict):
+                continue
+            default = spec.get("default")
+            if isinstance(default, str) and "{" in default:
+                injected = _inject_credentials(default, credentials)
+                if injected != default and key not in arguments:
+                    arguments[key] = injected
+
+    # Replace {placeholder} in URL path with arguments (e.g. /users/{id})
+    for key, value in list(arguments.items()):
+        placeholder = f"{{{key}}}"
+        if placeholder in url:
+            url = url.replace(placeholder, str(value))
+
+    # Build request body / query params
     body = None
+    query_params: dict[str, Any] = {}
+
     if method in ("POST", "PUT", "PATCH"):
         if body_template:
             body = {**body_template}
-            # Merge LLM-provided arguments into body
             for key, value in arguments.items():
                 body[key] = value
         else:
             body = arguments
+    else:
+        # GET/DELETE: put args as query params
+        for key, value in arguments.items():
+            if f"{{{key}}}" not in tool_config.get("url", ""):
+                query_params[key] = value
 
-    logger.info("tool_api_call", method=method, url=url, has_body=body is not None)
+    logger.info("tool_api_call", method=method, url=url, query=list(query_params.keys()), has_body=body is not None)
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -99,6 +124,7 @@ async def execute_api_tool(
                 method=method,
                 url=url,
                 headers=headers,
+                params=query_params if query_params else None,
                 json=body if body else None,
             )
             try:
