@@ -31,9 +31,8 @@ function UserMenu() {
 function TokenCounter() {
   const [tokens, setTokens] = useState(0);
   useEffect(() => {
-    api.listRuns().then((runs) => {
-      const total = (runs as Array<Record<string, unknown>>).reduce((s, r) => s + ((r.total_tokens as number) || 0), 0);
-      setTokens(total);
+    api.getTokenStats().then((stats) => {
+      setTokens((stats as { total_tokens: number }).total_tokens || 0);
     }).catch(() => {});
   }, []);
 

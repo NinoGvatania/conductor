@@ -13,39 +13,73 @@ router = APIRouter(prefix="/api/runs", tags=["runs"])
 
 @router.get("/stats")
 async def get_token_stats():
-    """Aggregate token usage by provider and model across all runs."""
+    """Aggregate token usage from ALL sources: workflow runs + chat messages."""
     client = get_supabase_client()
-    try:
-        result = client.table("runs").select("state_json").execute()
-    except Exception as e:
-        logger.warning("stats_error", error=str(e))
-        return {"by_provider": {}, "by_model": {}, "total_tokens": 0}
 
     by_provider: dict[str, dict[str, int]] = defaultdict(lambda: {"input_tokens": 0, "output_tokens": 0, "total": 0})
     by_model: dict[str, dict[str, int]] = defaultdict(lambda: {"input_tokens": 0, "output_tokens": 0, "total": 0})
     total_tokens = 0
 
-    for row in result.data:
-        try:
-            run = RunState.model_validate_json(row["state_json"])
-            for step in run.steps:
-                provider = step.provider or "anthropic"
-                model = step.model or (step.agent_name if step.agent_name else "unknown")
-                tokens = step.tokens_used or 0
-                inp = step.input_tokens or 0
-                out = step.output_tokens or 0
+    # 1. Count from workflow runs
+    try:
+        result = client.table("runs").select("state_json").execute()
+        for row in result.data:
+            try:
+                run = RunState.model_validate_json(row["state_json"])
+                for step in run.steps:
+                    tokens = step.tokens_used or 0
+                    if tokens == 0:
+                        continue
+                    provider = step.provider or "anthropic"
+                    model = step.model or "unknown"
+                    inp = step.input_tokens or 0
+                    out = step.output_tokens or 0
 
-                by_provider[provider]["input_tokens"] += inp
-                by_provider[provider]["output_tokens"] += out
-                by_provider[provider]["total"] += tokens
+                    by_provider[provider]["input_tokens"] += inp
+                    by_provider[provider]["output_tokens"] += out
+                    by_provider[provider]["total"] += tokens
+                    by_model[model]["input_tokens"] += inp
+                    by_model[model]["output_tokens"] += out
+                    by_model[model]["total"] += tokens
+                    total_tokens += tokens
+            except Exception:
+                continue
+    except Exception as e:
+        logger.warning("stats_runs_error", error=str(e))
 
-                by_model[model]["input_tokens"] += inp
-                by_model[model]["output_tokens"] += out
-                by_model[model]["total"] += tokens
+    # 2. Count from chat messages
+    try:
+        import json as _json
+        result = client.table("messages").select("metadata").eq("role", "assistant").execute()
+        for row in result.data:
+            meta = row.get("metadata")
+            if not meta:
+                continue
+            if isinstance(meta, str):
+                try:
+                    meta = _json.loads(meta)
+                except Exception:
+                    continue
+            if not isinstance(meta, dict):
+                continue
 
-                total_tokens += tokens
-        except Exception:
-            continue
+            tokens = meta.get("tokens_used", 0)
+            if not tokens:
+                continue
+            provider = meta.get("provider", "anthropic")
+            model = meta.get("model", "unknown")
+            inp = meta.get("input_tokens", 0)
+            out = meta.get("output_tokens", 0)
+
+            by_provider[provider]["input_tokens"] += inp
+            by_provider[provider]["output_tokens"] += out
+            by_provider[provider]["total"] += tokens
+            by_model[model]["input_tokens"] += inp
+            by_model[model]["output_tokens"] += out
+            by_model[model]["total"] += tokens
+            total_tokens += tokens
+    except Exception as e:
+        logger.warning("stats_messages_error", error=str(e))
 
     return {
         "by_provider": dict(by_provider),

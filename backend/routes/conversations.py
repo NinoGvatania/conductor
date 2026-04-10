@@ -305,11 +305,24 @@ async def send_message(msg: MessageSend):
         logger.error("chat_error", error=str(e))
         assistant_content = f"Error: {e}"
 
-    # Save assistant message
+    # Save assistant message with token metadata
     assistant_msg_id = str(uuid.uuid4())
+    token_metadata = {}
+    try:
+        token_metadata = {
+            "input_tokens": response.input_tokens,
+            "output_tokens": response.output_tokens,
+            "tokens_used": response.input_tokens + response.output_tokens,
+            "model": response.model or (msg.model or ""),
+            "provider": "openai" if (msg.model or "").startswith(("gpt", "o3", "o1")) else "anthropic",
+        }
+    except Exception:
+        pass
+
     client.table("messages").insert({
         "id": assistant_msg_id, "conversation_id": conv_id,
         "role": "assistant", "content": assistant_content,
+        "metadata": json.dumps(token_metadata),
     }).execute()
 
     # Update title
