@@ -28,6 +28,23 @@ function UserMenu() {
   );
 }
 
+function TokenCounter() {
+  const [tokens, setTokens] = useState(0);
+  useEffect(() => {
+    api.listRuns().then((runs) => {
+      const total = (runs as Array<Record<string, unknown>>).reduce((s, r) => s + ((r.total_tokens as number) || 0), 0);
+      setTokens(total);
+    }).catch(() => {});
+  }, []);
+
+  return (
+    <div className="flex items-center gap-1.5 px-2 py-1 rounded text-[11px]" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
+      <span style={{ color: "var(--text-muted)" }}>Tokens:</span>
+      <span style={{ color: "var(--text-primary)" }}>{tokens.toLocaleString()}</span>
+    </div>
+  );
+}
+
 interface Project {
   id: string;
   name: string;
@@ -101,7 +118,10 @@ export default function Header() {
           )}
         </div>
       </div>
-      <UserMenu />
+      <div className="flex items-center gap-3">
+        <TokenCounter />
+        <UserMenu />
+      </div>
     </header>
   );
 }

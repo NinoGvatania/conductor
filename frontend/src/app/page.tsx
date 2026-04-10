@@ -3,13 +3,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { formatCost, formatDate } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 
 interface Run { id: string; workflow_id: string; status: string; total_cost_usd: number; total_tokens: number; total_steps: number; created_at: string; }
 
 const dot: Record<string, string> = { running: "#3b82f6", completed: "#0cce6b", failed: "#ee0000", paused: "#f5a623" };
-const PIE_COLORS = ["#0cce6b", "#ee0000", "#3b82f6", "#f5a623"];
+const STATUS_COLORS = ["#0cce6b", "#ee0000", "#3b82f6", "#f5a623"];
 
 export default function Dashboard() {
   const [runs, setRuns] = useState<Run[]>([]);
@@ -21,24 +21,28 @@ export default function Dashboard() {
   }, []);
 
   const completed = runs.filter((r) => r.status === "completed").length;
-  const failed = runs.filter((r) => r.status === "failed").length;
-  const totalCost = runs.reduce((s, r) => s + (r.total_cost_usd || 0), 0);
   const totalTokens = runs.reduce((s, r) => s + (r.total_tokens || 0), 0);
 
-  // Chart data: cost per run (last 10)
-  const costData = runs.slice(0, 10).reverse().map((r, i) => ({
+  // Tokens per run (last 10)
+  const tokenData = runs.slice(0, 10).reverse().map((r, i) => ({
     name: `#${i + 1}`,
-    cost: r.total_cost_usd || 0,
     tokens: r.total_tokens || 0,
   }));
 
-  // Pie data: status distribution
+  // Status distribution pie
   const statusCounts = [
     { name: "Completed", value: completed },
-    { name: "Failed", value: failed },
+    { name: "Failed", value: runs.filter((r) => r.status === "failed").length },
     { name: "Running", value: runs.filter((r) => r.status === "running").length },
     { name: "Paused", value: runs.filter((r) => r.status === "paused").length },
   ].filter((s) => s.value > 0);
+
+  // Tokens by provider (from agents)
+  const providerTokens: Record<string, number> = {};
+  agents.forEach((a) => {
+    const provider = (a.provider as string) || "anthropic";
+    providerTokens[provider] = (providerTokens[provider] || 0) + 1;
+  });
 
   return (
     <div>
@@ -47,10 +51,10 @@ export default function Dashboard() {
       {/* Stats */}
       <div className="grid grid-cols-4 gap-3 mb-6">
         {[
+          { label: "Total Tokens", value: totalTokens.toLocaleString() },
           { label: "Total Runs", value: runs.length },
           { label: "Success Rate", value: runs.length > 0 ? `${Math.round((completed / runs.length) * 100)}%` : "—" },
-          { label: "Total Cost", value: `$${totalCost.toFixed(4)}` },
-          { label: "Tokens Used", value: totalTokens.toLocaleString() },
+          { label: "Active Agents", value: agents.length },
         ].map((c) => (
           <div key={c.label} className="p-4 rounded-lg" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
             <div className="text-[10px] uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>{c.label}</div>
@@ -61,16 +65,16 @@ export default function Dashboard() {
 
       {/* Charts */}
       <div className="grid grid-cols-2 gap-3 mb-6">
-        {/* Cost per run */}
+        {/* Tokens per run */}
         <div className="rounded-lg p-4" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
-          <div className="text-xs font-medium mb-3" style={{ color: "var(--text-muted)" }}>Cost per Run (last 10)</div>
-          {costData.length > 0 ? (
+          <div className="text-xs font-medium mb-3" style={{ color: "var(--text-muted)" }}>Tokens per Run (last 10)</div>
+          {tokenData.length > 0 ? (
             <ResponsiveContainer width="100%" height={180}>
-              <BarChart data={costData}>
+              <BarChart data={tokenData}>
                 <XAxis dataKey="name" tick={{ fill: "#666", fontSize: 10 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: "#666", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${v}`} />
+                <YAxis tick={{ fill: "#666", fontSize: 10 }} axisLine={false} tickLine={false} />
                 <Tooltip contentStyle={{ background: "#111", border: "1px solid #333", borderRadius: 8, fontSize: 12 }} labelStyle={{ color: "#888" }} />
-                <Bar dataKey="cost" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="tokens" fill="#6366f1" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           ) : (
@@ -80,20 +84,20 @@ export default function Dashboard() {
 
         {/* Status distribution */}
         <div className="rounded-lg p-4" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
-          <div className="text-xs font-medium mb-3" style={{ color: "var(--text-muted)" }}>Run Status Distribution</div>
+          <div className="text-xs font-medium mb-3" style={{ color: "var(--text-muted)" }}>Run Status</div>
           {statusCounts.length > 0 ? (
             <div className="flex items-center gap-4">
               <ResponsiveContainer width={140} height={140}>
                 <PieChart>
                   <Pie data={statusCounts} dataKey="value" cx="50%" cy="50%" innerRadius={35} outerRadius={60} paddingAngle={3}>
-                    {statusCounts.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                    {statusCounts.map((_, i) => <Cell key={i} fill={STATUS_COLORS[i % STATUS_COLORS.length]} />)}
                   </Pie>
                 </PieChart>
               </ResponsiveContainer>
               <div className="space-y-2">
                 {statusCounts.map((s, i) => (
                   <div key={s.name} className="flex items-center gap-2 text-xs">
-                    <span className="w-2 h-2 rounded-full" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                    <span className="w-2 h-2 rounded-full" style={{ background: STATUS_COLORS[i % STATUS_COLORS.length] }} />
                     <span style={{ color: "var(--text-secondary)" }}>{s.name}: {s.value}</span>
                   </div>
                 ))}
@@ -105,17 +109,18 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Active agents */}
+      {/* Agents by provider */}
       <div className="mb-6">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>Active Agents ({agents.length})</span>
+          <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>Agents by Provider</span>
           <Link href="/agents" className="text-[10px]" style={{ color: "var(--text-muted)" }}>View all →</Link>
         </div>
-        <div className="flex gap-1.5 flex-wrap">
-          {agents.slice(0, 10).map((a, i) => (
-            <span key={i} className="px-2 py-1 rounded text-[11px]" style={{ background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}>
-              {a.name as string}
-            </span>
+        <div className="flex gap-2 flex-wrap">
+          {Object.entries(providerTokens).map(([provider, count]) => (
+            <div key={provider} className="px-3 py-2 rounded-lg" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
+              <div className="text-xs font-medium capitalize" style={{ color: "var(--text-primary)" }}>{provider}</div>
+              <div className="text-[10px]" style={{ color: "var(--text-muted)" }}>{count} agents</div>
+            </div>
           ))}
         </div>
       </div>
@@ -127,7 +132,7 @@ export default function Dashboard() {
           <table className="w-full">
             <thead>
               <tr style={{ background: "var(--bg-card)" }}>
-                {["Status", "Workflow", "Cost", "Tokens", "Steps", "Date"].map((h) => (
+                {["Status", "Workflow", "Tokens", "Steps", "Date"].map((h) => (
                   <th key={h} className="px-3 py-2 text-left text-[10px] font-medium uppercase tracking-wider" style={{ color: "var(--text-muted)", borderBottom: "1px solid var(--border)" }}>{h}</th>
                 ))}
               </tr>
@@ -140,8 +145,7 @@ export default function Dashboard() {
                     <span className="text-xs capitalize" style={{ color: "var(--text-secondary)" }}>{r.status}</span>
                   </td>
                   <td className="px-3 py-2"><Link href={`/runs/${r.id}`} className="text-xs hover:underline" style={{ color: "var(--text-primary)" }}>{r.workflow_id.slice(0, 8)}</Link></td>
-                  <td className="px-3 py-2 text-xs" style={{ color: "var(--text-muted)" }}>{formatCost(r.total_cost_usd)}</td>
-                  <td className="px-3 py-2 text-xs" style={{ color: "var(--text-muted)" }}>{r.total_tokens}</td>
+                  <td className="px-3 py-2 text-xs" style={{ color: "var(--text-muted)" }}>{(r.total_tokens || 0).toLocaleString()}</td>
                   <td className="px-3 py-2 text-xs" style={{ color: "var(--text-muted)" }}>{r.total_steps}</td>
                   <td className="px-3 py-2 text-xs" style={{ color: "var(--text-muted)" }}>{r.created_at ? formatDate(r.created_at) : "—"}</td>
                 </tr>
