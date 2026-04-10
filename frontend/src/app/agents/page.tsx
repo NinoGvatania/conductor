@@ -20,7 +20,7 @@ const tierColors: Record<string, string> = { fast: "#0cce6b", balanced: "#3b82f6
 
 export default function AgentsPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [tab, setTab] = useState<"all" | "my" | "library">("all");
+  const [tab, setTab] = useState<"my" | "library">("my");
   const [search, setSearch] = useState("");
 
   useEffect(() => {
@@ -51,9 +51,9 @@ export default function AgentsPage() {
 
       <div className="flex items-center gap-3 mb-6">
         <div className="flex gap-1 p-0.5 rounded-md" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
-          {(["all", "my", "library"] as const).map((t) => (
-            <button key={t} onClick={() => setTab(t)} className="px-3 py-1 rounded text-xs font-medium capitalize" style={{ background: tab === t ? "var(--bg-hover)" : "transparent", color: tab === t ? "var(--text-primary)" : "var(--text-muted)" }}>
-              {t === "my" ? "My Agents" : t === "library" ? "Library" : "All"}
+          {(["my", "library"] as const).map((t) => (
+            <button key={t} onClick={() => setTab(t)} className="px-3 py-1 rounded text-xs font-medium" style={{ background: tab === t ? "rgba(255,255,255,0.06)" : "transparent", color: tab === t ? "var(--text-primary)" : "var(--text-muted)" }}>
+              {t === "my" ? "My Agents" : "Library"}
             </button>
           ))}
         </div>
