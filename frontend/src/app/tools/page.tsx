@@ -62,7 +62,7 @@ export default function ToolsPage() {
           return (
             <div key={conn.id} className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
               <div className="flex items-center justify-between px-4 py-3" style={{ background: "var(--bg-card)", borderBottom: connTools.length > 0 ? "1px solid var(--border)" : "none" }}>
-                <div className="flex items-center gap-3">
+                <Link href={`/tools/connections/${conn.id}`} className="flex items-center gap-3 flex-1">
                   <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{conn.name}</span>
                   <span className="text-[10px] px-2 py-0.5 rounded-full" style={{
                     background: conn.has_credentials ? "rgba(12,206,107,0.1)" : "rgba(245,158,11,0.1)",
@@ -71,8 +71,11 @@ export default function ToolsPage() {
                     {conn.has_credentials ? "Configured" : "No credentials"}
                   </span>
                   <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>{connTools.length} tools</span>
+                </Link>
+                <div className="flex gap-2">
+                  <Link href={`/tools/connections/${conn.id}`} className="text-[11px]" style={{ color: "var(--text-secondary)" }}>Edit</Link>
+                  <button onClick={() => deleteConnection(conn.id)} className="text-[11px]" style={{ color: "#ee0000" }}>Delete</button>
                 </div>
-                <button onClick={() => deleteConnection(conn.id)} className="text-[11px]" style={{ color: "#ee0000" }}>Delete</button>
               </div>
 
               {connTools.map((t, i) => (
