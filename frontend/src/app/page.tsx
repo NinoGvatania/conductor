@@ -81,8 +81,8 @@ export default function Dashboard() {
               <BarChart data={providerData}>
                 <XAxis dataKey="name" tick={{ fill: "#666", fontSize: 10 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fill: "#666", fontSize: 10 }} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={{ background: "#111", border: "1px solid #333", borderRadius: 8, fontSize: 11 }} />
-                <Bar dataKey="total" fill="#6366f1" name="Tokens" radius={[4, 4, 0, 0]} />
+                <Tooltip cursor={false} contentStyle={{ background: "#111", border: "1px solid #333", borderRadius: 8, fontSize: 11 }} />
+                <Bar dataKey="total" fill="#6366f1" name="Tokens" radius={[4, 4, 0, 0]} activeBar={{ fill: "#818cf8" }} />
               </BarChart>
             </ResponsiveContainer>
           ) : (
@@ -97,8 +97,8 @@ export default function Dashboard() {
               <BarChart data={modelData} layout="vertical">
                 <XAxis type="number" tick={{ fill: "#666", fontSize: 10 }} axisLine={false} tickLine={false} />
                 <YAxis type="category" dataKey="name" tick={{ fill: "#888", fontSize: 10 }} axisLine={false} tickLine={false} width={100} />
-                <Tooltip contentStyle={{ background: "#111", border: "1px solid #333", borderRadius: 8, fontSize: 11 }} />
-                <Bar dataKey="tokens" fill="#6366f1" radius={[0, 4, 4, 0]} />
+                <Tooltip cursor={false} contentStyle={{ background: "#111", border: "1px solid #333", borderRadius: 8, fontSize: 11 }} />
+                <Bar dataKey="tokens" fill="#6366f1" radius={[0, 4, 4, 0]} activeBar={{ fill: "#818cf8" }} />
               </BarChart>
             </ResponsiveContainer>
           ) : (
@@ -116,8 +116,8 @@ export default function Dashboard() {
               <BarChart data={tokenPerRun}>
                 <XAxis dataKey="name" tick={{ fill: "#666", fontSize: 10 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fill: "#666", fontSize: 10 }} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={{ background: "#111", border: "1px solid #333", borderRadius: 8, fontSize: 11 }} />
-                <Bar dataKey="tokens" fill="#0cce6b" radius={[4, 4, 0, 0]} />
+                <Tooltip cursor={false} contentStyle={{ background: "#111", border: "1px solid #333", borderRadius: 8, fontSize: 11 }} />
+                <Bar dataKey="tokens" fill="#0cce6b" radius={[4, 4, 0, 0]} activeBar={{ fill: "#34d399" }} />
               </BarChart>
             </ResponsiveContainer>
           ) : (
