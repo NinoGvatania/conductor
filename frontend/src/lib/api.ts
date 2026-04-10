@@ -23,10 +23,10 @@ export const api = {
   listConversations: (projectId?: string) =>
     request(`/api/conversations${projectId ? `?project_id=${projectId}` : ""}`),
   getMessages: (convId: string) => request(`/api/conversations/${convId}/messages`),
-  sendMessage: (content: string, conversationId?: string, projectId?: string) =>
+  sendMessage: (content: string, conversationId?: string, projectId?: string, model?: string) =>
     request("/api/conversations/send", {
       method: "POST",
-      body: JSON.stringify({ content, conversation_id: conversationId, project_id: projectId }),
+      body: JSON.stringify({ content, conversation_id: conversationId, project_id: projectId, model }),
     }),
   deleteConversation: (id: string) => request(`/api/conversations/${id}`, { method: "DELETE" }),
 

@@ -18,6 +18,7 @@ class MessageSend(BaseModel):
     content: str
     conversation_id: str | None = None
     project_id: str | None = None
+    model: str | None = None
 
 
 class AgentMessage(BaseModel):
@@ -252,16 +253,19 @@ async def send_message(msg: MessageSend):
         role = "user" if m["role"] == "user" else "assistant"
         messages.append({"role": role, "content": m["content"]})
 
-    # Call LLM with tools
-    from backend.core.providers.anthropic import AnthropicProvider
+    # Call LLM with tools — pick provider based on model
     from backend.core.providers.base import LLMRequest
 
-    provider = AnthropicProvider()
+    selected_model = msg.model or ""
+    if selected_model.startswith("gpt") or selected_model.startswith("o3"):
+        provider = ModelRouter.get_provider("openai")
+    else:
+        provider = ModelRouter.get_provider("anthropic")
     model_router = ModelRouter()
     orchestrator_tools = _build_orchestrator_tools()
 
     request = LLMRequest(
-        model=model_router.resolve("balanced"),
+        model=msg.model or model_router.resolve("balanced"),
         system_prompt=_build_system_prompt(agents, tools, workflows),
         messages=messages,
         tools=orchestrator_tools,

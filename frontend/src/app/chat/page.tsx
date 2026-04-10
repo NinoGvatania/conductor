@@ -17,6 +17,7 @@ function ChatContent() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [model, setModel] = useState("claude-sonnet-4-6");
   const messagesEnd = useRef<HTMLDivElement>(null);
 
   // Sync with URL param
@@ -47,7 +48,7 @@ function ChatContent() {
     setMessages((prev) => [...prev, { id: "temp", role: "user", content: text, created_at: new Date().toISOString() }]);
 
     try {
-      const result = (await api.sendMessage(text, activeConv || undefined)) as {
+      const result = (await api.sendMessage(text, activeConv || undefined, undefined, model)) as {
         conversation_id: string;
         message: Message;
       };
@@ -115,7 +116,31 @@ function ChatContent() {
 
       {/* Input */}
       <div className="p-4" style={{ borderTop: "1px solid var(--border)" }}>
-        <div className="max-w-2xl mx-auto flex gap-2">
+        <div className="max-w-2xl mx-auto">
+          <div className="flex items-center gap-1 mb-2">
+            <select
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              className="px-2 py-1 rounded text-[11px]"
+              style={{ background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
+            >
+              <optgroup label="Anthropic">
+                <option value="claude-haiku-4-5-20251001">Claude Haiku (fast)</option>
+                <option value="claude-sonnet-4-6">Claude Sonnet (balanced)</option>
+                <option value="claude-opus-4-6">Claude Opus (powerful)</option>
+              </optgroup>
+              <optgroup label="OpenAI">
+                <option value="gpt-4o-mini">GPT-4o Mini (fast)</option>
+                <option value="gpt-4o">GPT-4o (balanced)</option>
+                <option value="o3">o3 (powerful)</option>
+              </optgroup>
+              <optgroup label="Google">
+                <option value="gemini-2.0-flash">Gemini Flash</option>
+                <option value="gemini-2.5-pro">Gemini Pro</option>
+              </optgroup>
+            </select>
+          </div>
+          <div className="flex gap-2">
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -133,6 +158,7 @@ function ChatContent() {
           >
             Send
           </button>
+          </div>
         </div>
       </div>
     </div>
