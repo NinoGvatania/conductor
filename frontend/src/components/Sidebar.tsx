@@ -67,7 +67,7 @@ export default function Sidebar() {
               className="px-3 py-1.5 rounded-md text-[13px] transition-colors"
               style={{
                 color: active ? "var(--text-primary)" : "var(--text-secondary)",
-                background: active ? "var(--bg-hover)" : "transparent",
+                background: active ? "rgba(255,255,255,0.06)" : "transparent",
                 fontWeight: active ? 500 : 400,
               }}
             >
@@ -109,7 +109,7 @@ export default function Sidebar() {
                     className="flex items-center gap-2 px-3 py-1.5 rounded-md text-[12px] mb-px transition-colors"
                     style={{
                       color: isActive ? "var(--text-primary)" : "var(--text-muted)",
-                      background: isActive ? "var(--bg-hover)" : "transparent",
+                      background: isActive ? "rgba(255,255,255,0.06)" : "transparent",
                       fontWeight: isActive ? 500 : 400,
                     }}
                   >
