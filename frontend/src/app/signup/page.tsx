@@ -2,43 +2,42 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
+import { api } from "@/lib/api";
+import { setAuth } from "@/lib/auth";
 
 export default function SignupPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
 
   async function handleSignup(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError("");
-    const { error } = await supabase.auth.signUp({ email, password });
-    if (error) setError(error.message);
-    else setSuccess(true);
-    setLoading(false);
+    try {
+      const result = (await api.register(email, password, name)) as { token: string; user: { id: string; email: string; name: string } };
+      setAuth(result.token, result.user);
+      window.location.href = "/";
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Signup failed");
+    } finally {
+      setLoading(false);
+    }
   }
 
   const s = { background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-primary)" };
-
-  if (success) {
-    return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg-primary)" }}>
-        <div className="w-full max-w-sm p-8 rounded-lg text-center" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
-          <h1 className="text-xl font-semibold mb-4" style={{ color: "var(--text-primary)" }}>Check your email</h1>
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>Confirmation link sent to {email}</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg-primary)" }}>
       <div className="w-full max-w-sm p-8 rounded-lg" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
         <h1 className="text-xl font-semibold text-center mb-6" style={{ color: "var(--text-primary)" }}>Create Account</h1>
         <form onSubmit={handleSignup} className="space-y-4">
+          <div>
+            <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Name</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} className="w-full px-3 py-2 rounded-md text-sm" style={s} />
+          </div>
           <div>
             <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Email</label>
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full px-3 py-2 rounded-md text-sm" style={s} />

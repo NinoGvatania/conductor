@@ -1,14 +1,14 @@
 import uuid
+from pathlib import Path
 
 import structlog
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
-from backend.database import get_supabase_client
+from backend.config import settings
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/files", tags=["files"])
 
-BUCKET_NAME = "knowledge-base"
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 
 
@@ -17,9 +17,8 @@ async def upload_file(
     file: UploadFile = File(...),
     agent_id: str = Form(default=""),
 ):
-    """Upload a file for agent knowledge base."""
     if not file.filename:
-        raise HTTPException(status_code=400, detail="No file provided")
+        raise HTTPException(status_code=400, detail="No file")
 
     content = await file.read()
     if len(content) > MAX_FILE_SIZE:
@@ -27,30 +26,16 @@ async def upload_file(
 
     file_id = str(uuid.uuid4())
     ext = file.filename.rsplit(".", 1)[-1] if "." in file.filename else "txt"
-    storage_path = f"{agent_id or 'general'}/{file_id}.{ext}"
+    safe_filename = f"{file_id}.{ext}"
+    workspace = agent_id or "general"
 
-    client = get_supabase_client()
+    storage_dir = Path(settings.STORAGE_DIR) / workspace
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    file_path = storage_dir / safe_filename
 
     try:
-        # Upload to Supabase Storage
-        client.storage.from_(BUCKET_NAME).upload(
-            storage_path, content,
-            {"content-type": file.content_type or "application/octet-stream"},
-        )
+        file_path.write_bytes(content)
 
-        # Get public URL
-        public_url = client.storage.from_(BUCKET_NAME).get_public_url(storage_path)
-
-        return {
-            "file_id": file_id,
-            "filename": file.filename,
-            "size": len(content),
-            "url": public_url,
-            "storage_path": storage_path,
-        }
-    except Exception as e:
-        logger.error("file_upload_error", error=str(e))
-        # Fallback: store content as text if storage fails
         text_content = ""
         try:
             text_content = content.decode("utf-8")[:50000]
@@ -61,17 +46,18 @@ async def upload_file(
             "file_id": file_id,
             "filename": file.filename,
             "size": len(content),
-            "url": None,
+            "url": f"/files/{workspace}/{safe_filename}",
+            "storage_path": str(file_path),
             "text_content": text_content,
-            "storage_error": str(e),
         }
-
-
-@router.delete("/{file_path:path}")
-async def delete_file(file_path: str):
-    client = get_supabase_client()
-    try:
-        client.storage.from_(BUCKET_NAME).remove([file_path])
     except Exception as e:
-        logger.warning("file_delete_error", error=str(e))
+        logger.error("file_upload_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.delete("/{workspace}/{filename}")
+async def delete_file(workspace: str, filename: str):
+    path = Path(settings.STORAGE_DIR) / workspace / filename
+    if path.exists():
+        path.unlink()
     return {"status": "deleted"}

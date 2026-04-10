@@ -1,91 +1,23 @@
 import uuid
-from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.database import get_supabase_client
+from backend.database import get_db
+from backend.models import LLMProvider
 
 router = APIRouter(prefix="/api/llm-providers", tags=["llm-providers"])
 
-# All supported providers with their models
 PROVIDER_CATALOG = [
-    {
-        "id": "anthropic",
-        "name": "Anthropic",
-        "description": "Claude models — best for reasoning and analysis",
-        "models": [
-            {"id": "claude-haiku-4-5-20251001", "name": "Claude Haiku", "tier": "fast"},
-            {"id": "claude-sonnet-4-6", "name": "Claude Sonnet", "tier": "balanced"},
-            {"id": "claude-opus-4-6", "name": "Claude Opus", "tier": "powerful"},
-        ],
-        "auth_type": "api_key",
-        "auth_placeholder": "sk-ant-...",
-    },
-    {
-        "id": "openai",
-        "name": "OpenAI",
-        "description": "GPT and o-series models",
-        "models": [
-            {"id": "gpt-4o-mini", "name": "GPT-4o Mini", "tier": "fast"},
-            {"id": "gpt-4o", "name": "GPT-4o", "tier": "balanced"},
-            {"id": "o3", "name": "o3", "tier": "powerful"},
-        ],
-        "auth_type": "api_key",
-        "auth_placeholder": "sk-...",
-    },
-    {
-        "id": "gemini",
-        "name": "Google Gemini",
-        "description": "Gemini models from Google",
-        "models": [
-            {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash", "tier": "fast"},
-            {"id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro", "tier": "balanced"},
-        ],
-        "auth_type": "api_key",
-        "auth_placeholder": "AIza...",
-    },
-    {
-        "id": "yandexgpt",
-        "name": "YandexGPT",
-        "description": "YandexGPT models — Russian language optimized",
-        "models": [
-            {"id": "yandexgpt-lite", "name": "YandexGPT Lite", "tier": "fast"},
-            {"id": "yandexgpt", "name": "YandexGPT", "tier": "balanced"},
-        ],
-        "auth_type": "api_key",
-        "auth_placeholder": "AQVN...",
-    },
-    {
-        "id": "gigachat",
-        "name": "GigaChat",
-        "description": "GigaChat from Sber — Russian language",
-        "models": [
-            {"id": "gigachat-lite", "name": "GigaChat Lite", "tier": "fast"},
-            {"id": "gigachat-pro", "name": "GigaChat Pro", "tier": "balanced"},
-        ],
-        "auth_type": "api_key",
-        "auth_placeholder": "Bearer ...",
-    },
-    {
-        "id": "mistral",
-        "name": "Mistral",
-        "description": "Mistral AI models — fast and efficient",
-        "models": [
-            {"id": "mistral-small-latest", "name": "Mistral Small", "tier": "fast"},
-            {"id": "mistral-large-latest", "name": "Mistral Large", "tier": "balanced"},
-        ],
-        "auth_type": "api_key",
-        "auth_placeholder": "...",
-    },
-    {
-        "id": "custom",
-        "name": "Custom (OpenAI-compatible)",
-        "description": "Any OpenAI-compatible API endpoint",
-        "models": [],
-        "auth_type": "api_key_and_url",
-        "auth_placeholder": "sk-...",
-    },
+    {"id": "anthropic", "name": "Anthropic", "description": "Claude models — best for reasoning", "models": [], "auth_type": "api_key", "auth_placeholder": "sk-ant-..."},
+    {"id": "openai", "name": "OpenAI", "description": "GPT and o-series models", "models": [], "auth_type": "api_key", "auth_placeholder": "sk-..."},
+    {"id": "gemini", "name": "Google Gemini", "description": "Gemini models", "models": [], "auth_type": "api_key", "auth_placeholder": "AIza..."},
+    {"id": "yandexgpt", "name": "YandexGPT", "description": "Russian language optimized", "models": [], "auth_type": "api_key", "auth_placeholder": "AQVN..."},
+    {"id": "gigachat", "name": "GigaChat", "description": "GigaChat from Sber", "models": [], "auth_type": "api_key", "auth_placeholder": "Bearer ..."},
+    {"id": "mistral", "name": "Mistral", "description": "Mistral AI models", "models": [], "auth_type": "api_key", "auth_placeholder": "..."},
+    {"id": "custom", "name": "Custom (OpenAI-compatible)", "description": "Any OpenAI-compatible endpoint", "models": [], "auth_type": "api_key_and_url", "auth_placeholder": "sk-..."},
 ]
 
 
@@ -103,61 +35,71 @@ async def get_catalog():
 
 @router.get("/{provider_name}/models")
 async def get_provider_models(provider_name: str, refresh: bool = False):
-    """Fetch available models from a connected provider's API."""
     from backend.core.providers.model_fetcher import fetch_models
-    models = await fetch_models(provider_name, force_refresh=refresh)
-    return models
+    return await fetch_models(provider_name, force_refresh=refresh)
 
 
 @router.get("")
-async def list_connected(project_id: str | None = None):
-    client = get_supabase_client()
-    query = client.table("llm_providers").select("id, provider, is_active, base_url, created_at")
+async def list_connected(project_id: str | None = None, db: AsyncSession = Depends(get_db)):
+    query = select(LLMProvider)
     if project_id:
-        query = query.eq("project_id", project_id)
-    result = query.execute()
-    return result.data
+        query = query.where(LLMProvider.project_id == uuid.UUID(project_id))
+    result = await db.execute(query)
+    return [
+        {
+            "id": str(p.id),
+            "provider": p.provider,
+            "is_active": p.is_active,
+            "base_url": p.base_url,
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+        }
+        for p in result.scalars().all()
+    ]
 
 
 @router.post("/connect")
-async def connect_provider(data: ProviderConnect):
-    client = get_supabase_client()
-    # Check if already exists
-    existing = client.table("llm_providers").select("id").eq("provider", data.provider)
+async def connect_provider(data: ProviderConnect, db: AsyncSession = Depends(get_db)):
+    # Check existing
+    query = select(LLMProvider).where(LLMProvider.provider == data.provider)
     if data.project_id:
-        existing = existing.eq("project_id", data.project_id)
-    existing = existing.execute()
-
-    row: dict[str, Any] = {
-        "provider": data.provider,
-        "api_key": data.api_key,
-        "base_url": data.base_url,
-        "is_active": True,
-    }
-    if data.project_id:
-        row["project_id"] = data.project_id
+        query = query.where(LLMProvider.project_id == uuid.UUID(data.project_id))
+    result = await db.execute(query)
+    existing = result.scalar_one_or_none()
 
     from backend.core.providers.key_store import clear_cache
     from backend.core.providers.model_fetcher import clear_models_cache
 
-    if existing.data:
-        client.table("llm_providers").update(row).eq("id", existing.data[0]["id"]).execute()
-        clear_cache()
-        clear_models_cache(data.provider)
-        return {"status": "updated", "provider": data.provider}
+    if existing:
+        existing.api_key = data.api_key
+        existing.base_url = data.base_url
+        existing.is_active = True
+        status = "updated"
     else:
-        row["id"] = str(uuid.uuid4())
-        client.table("llm_providers").insert(row).execute()
-        clear_cache()
-        clear_models_cache(data.provider)
-        return {"status": "connected", "provider": data.provider}
+        p = LLMProvider(
+            provider=data.provider,
+            api_key=data.api_key,
+            base_url=data.base_url,
+            is_active=True,
+            project_id=uuid.UUID(data.project_id) if data.project_id else None,
+        )
+        db.add(p)
+        status = "connected"
+
+    await db.commit()
+    clear_cache()
+    clear_models_cache(data.provider)
+    return {"status": status, "provider": data.provider}
 
 
 @router.post("/{provider_id}/disconnect")
-async def disconnect_provider(provider_id: str):
+async def disconnect_provider(provider_id: str, db: AsyncSession = Depends(get_db)):
     from backend.core.providers.key_store import clear_cache
 
-    client = get_supabase_client()
-    client.table("llm_providers").update({"is_active": False}).eq("id", provider_id).execute()
+    await db.execute(
+        update(LLMProvider)
+        .where(LLMProvider.id == uuid.UUID(provider_id))
+        .values(is_active=False)
+    )
+    await db.commit()
     clear_cache()
     return {"status": "disconnected"}

@@ -3,13 +3,16 @@ import uuid
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import delete, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.providers.anthropic import AnthropicProvider
 from backend.core.providers.base import LLMRequest
 from backend.core.providers.model_router import ModelRouter
-from backend.database import get_supabase_client
+from backend.database import get_db
+from backend.models import Tool
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/tools", tags=["tools"])
@@ -40,47 +43,46 @@ class ToolUpdate(BaseModel):
 
 
 class ToolWizardRequest(BaseModel):
-    api_docs: str  # paste API documentation or URL
-    description: str = ""  # optional hint about what the tool should do
+    api_docs: str
+    description: str = ""
 
 
-WIZARD_PROMPT = """You are an API tool configuration generator. Given API documentation,
-generate a CONCISE JSON object describing the integration and its tools.
-
-Rules:
-- Generate MAX 5-8 most important endpoints
-- Keep descriptions short (1 sentence)
-- Output ONLY valid JSON, no markdown
-- Use {api_key}, {token}, {username}, {password} placeholders for secrets
-- Identify the base_url if all endpoints share a common prefix
-
-Output schema:
-{
-  "app_name": "Telegram" or "OpenWeather" etc,
-  "description": "Short description of this integration",
-  "base_url": "https://api.example.com",
-  "auth_type": "api_key" | "bearer" | "basic" | "none",
-  "credential_keys": ["api_key"] or ["username", "password"],
-  "tools": [
-    {
-      "name": "snake_case_name",
-      "description": "Short description",
-      "url": "https://api.example.com/endpoint" or "/endpoint" relative to base_url,
-      "method": "GET|POST|PUT|DELETE",
-      "headers": {"Authorization": "Bearer {api_key}"},
-      "parameters": {
-        "type": "object",
-        "properties": {"param": {"type": "string"}},
-        "required": ["param"]
-      }
+def _serialize(t: Tool) -> dict:
+    return {
+        "id": str(t.id),
+        "project_id": str(t.project_id) if t.project_id else None,
+        "connection_id": str(t.connection_id) if t.connection_id else None,
+        "name": t.name,
+        "description": t.description,
+        "url": t.url,
+        "method": t.method,
+        "headers": t.headers,
+        "parameters": t.parameters,
+        "body_template": t.body_template,
+        "is_public": t.is_public,
     }
-  ]
-}"""
+
+
+WIZARD_PROMPT = """You are an API tool configuration generator. Output JSON with app_name, base_url, credential_keys, and tools array.
+
+Max 5-8 tools. Each tool: name (snake_case), description, url, method, headers, parameters schema.
+Use {api_key}, {token}, {username} placeholders for secrets.
+
+Schema:
+{
+  "app_name": "string",
+  "description": "string",
+  "base_url": "https://api.example.com",
+  "auth_type": "api_key|bearer|basic|none",
+  "credential_keys": ["api_key"],
+  "tools": [{"name": "...", "description": "...", "url": "...", "method": "GET|POST|PUT|DELETE", "headers": {}, "parameters": {"type":"object","properties":{}}}]
+}
+
+Output ONLY valid JSON, no markdown."""
 
 
 @router.post("/wizard")
 async def tool_wizard(request: ToolWizardRequest):
-    """AI parses API documentation and generates tool configs."""
     provider = AnthropicProvider()
     model_router = ModelRouter()
 
@@ -96,40 +98,24 @@ async def tool_wizard(request: ToolWizardRequest):
     try:
         response = await provider.complete(llm_request)
         content = response.content.strip()
-
-        # Strip markdown code fences
         if content.startswith("```"):
             lines = content.split("\n")
             content = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-
-        # Extract JSON object (not array)
         start = content.find("{")
         end = content.rfind("}")
         if start >= 0 and end > start:
             content = content[start:end + 1]
-
         try:
             parsed = json.loads(content)
         except json.JSONDecodeError:
-            # Try to repair by closing braces
-            last_complete = content.rfind("},")
-            if last_complete > 0:
-                content = content[:last_complete + 1] + "]}"
+            last = content.rfind("},")
+            if last > 0:
+                content = content[:last + 1] + "]}"
                 parsed = json.loads(content)
             else:
                 raise
-
-        # Backward compat: if AI returned a bare list, wrap it
         if isinstance(parsed, list):
-            parsed = {
-                "app_name": "Custom Integration",
-                "description": "",
-                "base_url": "",
-                "auth_type": "api_key",
-                "credential_keys": ["api_key"],
-                "tools": parsed,
-            }
-
+            parsed = {"app_name": "Custom", "tools": parsed, "credential_keys": ["api_key"], "base_url": "", "auth_type": "api_key"}
         return {
             "app_name": parsed.get("app_name", "Integration"),
             "description": parsed.get("description", ""),
@@ -139,55 +125,60 @@ async def tool_wizard(request: ToolWizardRequest):
             "tools": parsed.get("tools", []),
             "count": len(parsed.get("tools", [])),
         }
-    except json.JSONDecodeError as e:
-        logger.error("wizard_json_error", error=str(e), content_preview=content[:500] if content else "")
-        raise HTTPException(status_code=422, detail="AI returned invalid JSON. Try shorter docs or more specific focus.") from e
     except Exception as e:
         logger.error("wizard_error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("")
-async def list_tools(project_id: str | None = None):
-    client = get_supabase_client()
-    query = client.table("tools").select("*").order("created_at", desc=True)
+async def list_tools(project_id: str | None = None, db: AsyncSession = Depends(get_db)):
+    query = select(Tool).order_by(Tool.created_at.desc())
     if project_id:
-        query = query.eq("project_id", project_id)
-    result = query.execute()
-    return result.data
+        query = query.where(Tool.project_id == uuid.UUID(project_id))
+    result = await db.execute(query)
+    return [_serialize(t) for t in result.scalars().all()]
 
 
 @router.post("")
-async def create_tool(tool: ToolCreate):
-    client = get_supabase_client()
-    tool_id = str(uuid.uuid4())
-    data = {"id": tool_id, **tool.model_dump()}
-    try:
-        client.table("tools").insert(data).execute()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-    return data
+async def create_tool(tool: ToolCreate, db: AsyncSession = Depends(get_db)):
+    t = Tool(
+        name=tool.name,
+        description=tool.description,
+        url=tool.url,
+        method=tool.method,
+        headers=tool.headers,
+        parameters=tool.parameters,
+        body_template=tool.body_template,
+        is_public=tool.is_public,
+        project_id=uuid.UUID(tool.project_id) if tool.project_id else None,
+        connection_id=uuid.UUID(tool.connection_id) if tool.connection_id else None,
+    )
+    db.add(t)
+    await db.commit()
+    await db.refresh(t)
+    return _serialize(t)
 
 
 @router.get("/{tool_id}")
-async def get_tool(tool_id: str):
-    client = get_supabase_client()
-    result = client.table("tools").select("*").eq("id", tool_id).single().execute()
-    if not result.data:
+async def get_tool(tool_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Tool).where(Tool.id == uuid.UUID(tool_id)))
+    t = result.scalar_one_or_none()
+    if not t:
         raise HTTPException(status_code=404, detail="Tool not found")
-    return result.data
+    return _serialize(t)
 
 
 @router.put("/{tool_id}")
-async def update_tool(tool_id: str, update: ToolUpdate):
-    client = get_supabase_client()
-    data = {k: v for k, v in update.model_dump().items() if v is not None}
-    client.table("tools").update(data).eq("id", tool_id).execute()
+async def update_tool(tool_id: str, payload: ToolUpdate, db: AsyncSession = Depends(get_db)):
+    data = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if data:
+        await db.execute(update(Tool).where(Tool.id == uuid.UUID(tool_id)).values(**data))
+        await db.commit()
     return {"status": "updated"}
 
 
 @router.delete("/{tool_id}")
-async def delete_tool(tool_id: str):
-    client = get_supabase_client()
-    client.table("tools").delete().eq("id", tool_id).execute()
+async def delete_tool(tool_id: str, db: AsyncSession = Depends(get_db)):
+    await db.execute(delete(Tool).where(Tool.id == uuid.UUID(tool_id)))
+    await db.commit()
     return {"status": "deleted"}

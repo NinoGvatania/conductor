@@ -1,43 +1,43 @@
+import time as _time
+import uuid
 from collections import defaultdict
 
 import structlog
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.contracts.run import RunState
-from backend.database import get_supabase_client
+from backend.database import get_db
+from backend.models import Message, Run
 
 logger = structlog.get_logger()
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
-
-import time as _time
-
 _stats_cache: dict[str, tuple[float, dict]] = {}
-STATS_CACHE_TTL = 60  # seconds
+STATS_CACHE_TTL = 60
 
 
 @router.get("/stats")
-async def get_token_stats():
-    """Aggregate token usage from ALL sources: workflow runs + chat messages."""
+async def get_token_stats(db: AsyncSession = Depends(get_db)):
+    """Aggregate token usage from runs + chat messages."""
     if "stats" in _stats_cache:
         cached_at, data = _stats_cache["stats"]
         if _time.time() - cached_at < STATS_CACHE_TTL:
             return data
 
-    client = get_supabase_client()
-
     by_provider: dict[str, dict[str, int]] = defaultdict(lambda: {"input_tokens": 0, "output_tokens": 0, "total": 0})
     by_model: dict[str, dict[str, int]] = defaultdict(lambda: {"input_tokens": 0, "output_tokens": 0, "total": 0})
     total_tokens = 0
 
-    # 1. Count from workflow runs
+    # From runs
     try:
-        result = client.table("runs").select("state_json").execute()
-        for row in result.data:
+        result = await db.execute(select(Run))
+        for run in result.scalars().all():
             try:
-                run = RunState.model_validate_json(row["state_json"])
-                for step in run.steps:
+                rs = RunState.model_validate_json(run.state_json)
+                for step in rs.steps:
                     tokens = step.tokens_used or 0
                     if tokens == 0:
                         continue
@@ -45,7 +45,6 @@ async def get_token_stats():
                     model = step.model or "unknown"
                     inp = step.input_tokens or 0
                     out = step.output_tokens or 0
-
                     by_provider[provider]["input_tokens"] += inp
                     by_provider[provider]["output_tokens"] += out
                     by_provider[provider]["total"] += tokens
@@ -58,30 +57,18 @@ async def get_token_stats():
     except Exception as e:
         logger.warning("stats_runs_error", error=str(e))
 
-    # 2. Count from chat messages
+    # From chat messages
     try:
-        import json as _json
-        result = client.table("messages").select("metadata").eq("role", "assistant").execute()
-        for row in result.data:
-            meta = row.get("metadata")
-            if not meta:
-                continue
-            if isinstance(meta, str):
-                try:
-                    meta = _json.loads(meta)
-                except Exception:
-                    continue
-            if not isinstance(meta, dict):
-                continue
-
-            tokens = meta.get("tokens_used", 0)
+        result = await db.execute(select(Message).where(Message.role == "assistant"))
+        for msg in result.scalars().all():
+            meta = msg.message_metadata or {}
+            tokens = meta.get("tokens_used", 0) if isinstance(meta, dict) else 0
             if not tokens:
                 continue
             provider = meta.get("provider", "anthropic")
             model = meta.get("model", "unknown")
             inp = meta.get("input_tokens", 0)
             out = meta.get("output_tokens", 0)
-
             by_provider[provider]["input_tokens"] += inp
             by_provider[provider]["output_tokens"] += out
             by_provider[provider]["total"] += tokens
@@ -92,39 +79,40 @@ async def get_token_stats():
     except Exception as e:
         logger.warning("stats_messages_error", error=str(e))
 
-    result = {
+    result_data = {
         "by_provider": dict(by_provider),
         "by_model": dict(by_model),
         "total_tokens": total_tokens,
     }
-    _stats_cache["stats"] = (_time.time(), result)
-    return result
+    _stats_cache["stats"] = (_time.time(), result_data)
+    return result_data
 
 
 @router.get("")
-async def list_runs(status: str | None = None):
-    client = get_supabase_client()
-    query = client.table("runs").select("id, workflow_id, status, total_cost_usd, total_tokens, total_steps, created_at")
+async def list_runs(status: str | None = None, db: AsyncSession = Depends(get_db)):
+    query = select(Run).order_by(Run.created_at.desc())
     if status:
-        query = query.eq("status", status)
-    result = query.order("created_at", desc=True).execute()
-    return result.data
+        query = query.where(Run.status == status)
+    result = await db.execute(query)
+    return [
+        {
+            "id": str(r.id),
+            "workflow_id": str(r.workflow_id) if r.workflow_id else None,
+            "status": r.status,
+            "total_tokens": r.total_tokens,
+            "total_cost_usd": r.total_cost_usd,
+            "total_steps": r.total_steps,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in result.scalars().all()
+    ]
 
 
 @router.get("/{run_id}")
-async def get_run(run_id: str):
-    client = get_supabase_client()
-    try:
-        result = (
-            client.table("runs")
-            .select("state_json")
-            .eq("id", run_id)
-            .single()
-            .execute()
-        )
-    except Exception as e:
-        raise HTTPException(status_code=404, detail="Run not found") from e
-    if not result.data:
+async def get_run(run_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Run).where(Run.id == uuid.UUID(run_id)))
+    run = result.scalar_one_or_none()
+    if not run:
         raise HTTPException(status_code=404, detail="Run not found")
-    run_state = RunState.model_validate_json(result.data["state_json"])
-    return run_state.model_dump()
+    rs = RunState.model_validate_json(run.state_json)
+    return rs.model_dump()

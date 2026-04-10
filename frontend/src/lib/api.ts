@@ -1,10 +1,26 @@
+import { getToken, clearAuth } from "./auth";
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...options?.headers },
-    ...options,
-  });
+  const token = getToken();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(options?.headers as Record<string, string> | undefined),
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+
+  if (res.status === 401) {
+    clearAuth();
+    if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+      window.location.href = "/login";
+    }
+  }
+
   if (!res.ok) {
     const error = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(error.detail || "Request failed");
@@ -13,6 +29,13 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  // Auth
+  register: (email: string, password: string, name: string) =>
+    request("/api/auth/register", { method: "POST", body: JSON.stringify({ email, password, name }) }),
+  login: (email: string, password: string) =>
+    request("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  me: () => request("/api/auth/me"),
+
   // Projects
   listProjects: () => request("/api/projects"),
   createProject: (name: string, description = "") =>
@@ -39,6 +62,7 @@ export const api = {
     request(`/api/agents/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteAgent: (id: string) => request(`/api/agents/${id}`, { method: "DELETE" }),
   cloneAgent: (id: string) => request(`/api/agents/${id}/clone`, { method: "POST" }),
+  listProviders: () => request("/api/agents/providers"),
 
   // Tools
   listTools: (projectId?: string) =>
@@ -52,7 +76,7 @@ export const api = {
   generateToolsFromDocs: (apiDocs: string, description = "") =>
     request("/api/tools/wizard", { method: "POST", body: JSON.stringify({ api_docs: apiDocs, description }) }),
 
-  // Connections (integrations)
+  // Connections
   listConnections: (projectId?: string) =>
     request(`/api/connections${projectId ? `?project_id=${projectId}` : ""}`),
   getConnection: (id: string) => request(`/api/connections/${id}`),
@@ -98,10 +122,13 @@ export const api = {
 
   // Files
   uploadFile: async (file: File, agentId = "") => {
+    const token = getToken();
     const formData = new FormData();
     formData.append("file", file);
     formData.append("agent_id", agentId);
-    const res = await fetch(`${API_BASE}/api/files/upload`, { method: "POST", body: formData });
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/api/files/upload`, { method: "POST", headers, body: formData });
     if (!res.ok) throw new Error("Upload failed");
     return res.json();
   },
@@ -112,12 +139,4 @@ export const api = {
     request(`/api/projects/${projectId}/members`, { method: "POST", body: JSON.stringify({ email, role }) }),
   removeMember: (projectId: string, memberId: string) =>
     request(`/api/projects/${projectId}/members/${memberId}`, { method: "DELETE" }),
-
-  // Legacy
-  chat: (message: string) =>
-    request("/api/chat", { method: "POST", body: JSON.stringify({ message }) }),
-  listApprovals: () => request("/api/approvals"),
-  resolveApproval: (runId: string, decision: string, comment = "") =>
-    request(`/api/approvals/${runId}/resolve`, { method: "POST", body: JSON.stringify({ decision, comment }) }),
-  listProviders: () => request("/api/agents/providers"),
 };

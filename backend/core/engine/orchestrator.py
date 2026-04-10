@@ -12,7 +12,7 @@ from backend.core.contracts.run import RunState, RunStatus, StepResult, StepStat
 from backend.core.contracts.workflow import NodeDefinition, NodeType, WorkflowDefinition
 from backend.core.engine.checkpoint import CheckpointStore
 from backend.core.guardrails.pipeline import GuardrailPipeline
-from backend.database import get_supabase_client
+from backend.database import async_session_factory
 from backend.core.providers.anthropic import AnthropicProvider
 from backend.core.providers.base import LLMRequest
 from backend.core.providers.model_router import ModelRouter
@@ -194,40 +194,42 @@ class OrchestrationEngine:
         # Check builtin agents first, then DB
         if not agent_dict:
             try:
-                client = get_supabase_client()
-                result = client.table("agents").select("*").eq("name", agent_name).execute()
-                if result.data:
-                    row = result.data[0]
-                    agent_dict = {
-                        "name": row["name"],
-                        "description": row.get("description", ""),
-                        "purpose": row.get("purpose", ""),
-                        "model_tier": row.get("model_tier", "balanced"),
-                        "system_prompt": row.get("system_prompt", ""),
-                        "output_schema": row.get("output_schema", {}),
-                        "temperature": float(row.get("temperature", 0)),
-                        "timeout_seconds": row.get("timeout_seconds", 120),
-                        "max_retries": row.get("max_retries", 3),
-                        "max_tokens": row.get("max_tokens", 4096),
-                    }
-                    agent_tools_raw = row.get("tools", []) or []
-                    # Resolve tool names to full configs from library
-                    for t in agent_tools_raw:
-                        tool_name = t.get("name") if isinstance(t, dict) else None
-                        if tool_name:
-                            try:
-                                tool_result = client.table("tools").select("*").eq("name", tool_name).execute()
-                                if tool_result.data:
-                                    agent_tools.append(tool_result.data[0])
-                                    logger.info("tool_resolved", tool=tool_name)
-                                    continue
-                                else:
-                                    logger.warning("tool_not_in_library", tool=tool_name)
-                            except Exception as te:
-                                logger.warning("tool_lookup_error", tool=tool_name, error=str(te))
-                        # Fallback: use the tool dict as-is only if it has a URL
-                        if isinstance(t, dict) and t.get("url"):
-                            agent_tools.append(t)
+                from sqlalchemy import select as _select
+                from backend.models import AgentConfig, Tool
+
+                async with async_session_factory() as db:
+                    result = await db.execute(_select(AgentConfig).where(AgentConfig.name == agent_name))
+                    a = result.scalar_one_or_none()
+                    if a:
+                        agent_dict = {
+                            "name": a.name,
+                            "description": a.description,
+                            "purpose": a.purpose,
+                            "model_tier": a.model_tier,
+                            "system_prompt": a.system_prompt,
+                            "output_schema": a.output_schema or {},
+                            "temperature": float(a.temperature or 0),
+                            "timeout_seconds": a.timeout_seconds,
+                            "max_retries": a.max_retries,
+                            "max_tokens": a.max_tokens,
+                        }
+                        for t in a.tools or []:
+                            tool_name = t.get("name") if isinstance(t, dict) else None
+                            if tool_name:
+                                tr = await db.execute(_select(Tool).where(Tool.name == tool_name))
+                                tool = tr.scalar_one_or_none()
+                                if tool:
+                                    agent_tools.append({
+                                        "id": str(tool.id),
+                                        "name": tool.name,
+                                        "description": tool.description,
+                                        "url": tool.url,
+                                        "method": tool.method,
+                                        "headers": tool.headers,
+                                        "parameters": tool.parameters,
+                                        "body_template": tool.body_template,
+                                        "connection_id": str(tool.connection_id) if tool.connection_id else None,
+                                    })
             except Exception as e:
                 logger.warning("agent_db_lookup_failed", agent=agent_name, error=str(e))
 
@@ -424,11 +426,9 @@ class OrchestrationEngine:
     ) -> None:
         """Agent creates a conversation to ask the user for approval."""
         try:
-            client = get_supabase_client()
-            import uuid as _uuid
+            from backend.models import Conversation, Message
 
             agent_name = step.agent_name or node.agent_name or node.id
-            conv_id = str(_uuid.uuid4())
             msg_content = (
                 f"Hi, I'm the **{agent_name}** agent working on run `{run_state.run_id[:8]}`.\n\n"
                 f"I need your input on step **{node.id}**.\n\n"
@@ -437,26 +437,29 @@ class OrchestrationEngine:
                 msg_content += f"**Issue:** {step.error}\n\n"
             msg_content += "Please reply with your decision — approve, reject, or give me guidance."
 
-            client.table("conversations").insert({
-                "id": conv_id,
-                "title": f"{agent_name}: needs approval",
-                "initiated_by": "agent",
-                "agent_name": agent_name,
-            }).execute()
+            async with async_session_factory() as db:
+                conv = Conversation(
+                    title=f"{agent_name}: needs approval",
+                    initiated_by="agent",
+                    agent_name=agent_name,
+                )
+                db.add(conv)
+                await db.flush()
 
-            client.table("messages").insert({
-                "id": str(_uuid.uuid4()),
-                "conversation_id": conv_id,
-                "role": "agent",
-                "content": msg_content,
-                "metadata": json.dumps({
-                    "agent_name": agent_name,
-                    "run_id": run_state.run_id,
-                    "node_id": node.id,
-                    "type": "approval_request",
-                }),
-            }).execute()
+                msg = Message(
+                    conversation_id=conv.id,
+                    role="agent",
+                    content=msg_content,
+                    message_metadata={
+                        "agent_name": agent_name,
+                        "run_id": str(run_state.run_id),
+                        "node_id": node.id,
+                        "type": "approval_request",
+                    },
+                )
+                db.add(msg)
+                await db.commit()
 
-            logger.info("agent_chat_created", agent=agent_name, conv_id=conv_id)
+            logger.info("agent_chat_created", agent=agent_name)
         except Exception as e:
             logger.warning("agent_chat_failed", error=str(e))

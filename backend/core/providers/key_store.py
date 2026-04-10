@@ -1,54 +1,70 @@
-import structlog
+import asyncio
 
-from backend.database import get_supabase_client
+import structlog
+from sqlalchemy import select
+
+from backend.database import async_session_factory
+from backend.models import LLMProvider
 
 logger = structlog.get_logger()
 
 _key_cache: dict[str, str] = {}
+_url_cache: dict[str, str] = {}
+
+
+async def _fetch_provider(provider: str) -> LLMProvider | None:
+    async with async_session_factory() as db:
+        result = await db.execute(
+            select(LLMProvider)
+            .where(LLMProvider.provider == provider)
+            .where(LLMProvider.is_active == True)  # noqa: E712
+        )
+        return result.scalar_one_or_none()
+
+
+def _run_async(coro):
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # We're in an async context — use a thread
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, coro)
+                return future.result()
+        else:
+            return loop.run_until_complete(coro)
+    except RuntimeError:
+        return asyncio.run(coro)
 
 
 def get_api_key(provider: str) -> str | None:
-    """Load API key for a provider from Supabase llm_providers table."""
     if provider in _key_cache:
         return _key_cache[provider]
-
     try:
-        client = get_supabase_client()
-        result = (
-            client.table("llm_providers")
-            .select("api_key")
-            .eq("provider", provider)
-            .eq("is_active", True)
-            .execute()
-        )
-        if result.data and result.data[0].get("api_key"):
-            key = result.data[0]["api_key"]
-            _key_cache[provider] = key
-            return key
+        p = _run_async(_fetch_provider(provider))
+        if p and p.api_key:
+            _key_cache[provider] = p.api_key
+            if p.base_url:
+                _url_cache[provider] = p.base_url
+            return p.api_key
     except Exception as e:
         logger.warning("key_store_error", provider=provider, error=str(e))
-
     return None
 
 
 def get_base_url(provider: str) -> str | None:
-    """Load base URL for custom providers."""
+    if provider in _url_cache:
+        return _url_cache[provider]
     try:
-        client = get_supabase_client()
-        result = (
-            client.table("llm_providers")
-            .select("base_url")
-            .eq("provider", provider)
-            .eq("is_active", True)
-            .execute()
-        )
-        if result.data and result.data[0].get("base_url"):
-            return result.data[0]["base_url"]
+        p = _run_async(_fetch_provider(provider))
+        if p and p.base_url:
+            _url_cache[provider] = p.base_url
+            return p.base_url
     except Exception:
         pass
     return None
 
 
 def clear_cache():
-    """Clear cached keys (call after connecting/disconnecting a provider)."""
     _key_cache.clear()
+    _url_cache.clear()

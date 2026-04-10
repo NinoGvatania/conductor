@@ -1,7 +1,7 @@
 [project]
 name = "agentflow-backend"
-version = "0.1.0"
-description = "AgentFlow — Managed AI Workforce Platform Backend"
+version = "0.2.0"
+description = "AgentFlow — AI Workforce Platform Backend"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115.0",
@@ -9,10 +9,15 @@ dependencies = [
     "pydantic>=2.10.0",
     "pydantic-settings>=2.6.0",
     "anthropic>=0.40.0",
-    "supabase>=2.10.0",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30.0",
+    "alembic>=1.14.0",
+    "pgvector>=0.3.6",
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[bcrypt]>=1.7.4",
+    "python-multipart>=0.0.20",
     "structlog>=24.4.0",
     "jsonschema>=4.23.0",
-    "python-multipart>=0.0.20",
     "httpx>=0.27.0",
 ]
 

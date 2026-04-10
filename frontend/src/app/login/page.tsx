@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
+import { api } from "@/lib/api";
+import { setAuth } from "@/lib/auth";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -14,10 +15,15 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError("");
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) setError(error.message);
-    else window.location.href = "/";
-    setLoading(false);
+    try {
+      const result = (await api.login(email, password)) as { token: string; user: { id: string; email: string; name: string } };
+      setAuth(result.token, result.user);
+      window.location.href = "/";
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Login failed");
+    } finally {
+      setLoading(false);
+    }
   }
 
   const s = { background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-primary)" };

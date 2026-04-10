@@ -2,8 +2,10 @@ import uuid
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import delete, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.agents.builtin.classifier import CLASSIFIER_AGENT
 from backend.core.agents.builtin.decision_maker import DECISION_MAKER_AGENT
@@ -12,7 +14,8 @@ from backend.core.agents.builtin.extractor import EXTRACTOR_AGENT
 from backend.core.agents.builtin.risk_scorer import RISK_SCORER_AGENT
 from backend.core.agents.builtin.validator import VALIDATOR_AGENT
 from backend.core.providers.model_router import ModelRouter
-from backend.database import get_supabase_client
+from backend.database import get_db
+from backend.models import AgentConfig, Tool
 
 logger = structlog.get_logger()
 
@@ -44,6 +47,7 @@ class AgentCreate(BaseModel):
     knowledge_bases: list[dict[str, Any]] = Field(default_factory=list)
     is_public: bool = False
     tags: list[str] = Field(default_factory=list)
+    project_id: str | None = None
 
 
 class AgentUpdate(BaseModel):
@@ -64,7 +68,27 @@ class AgentUpdate(BaseModel):
     tags: list[str] | None = None
 
 
-# === STATIC ROUTES FIRST (before /{agent_id}) ===
+def _serialize(a: AgentConfig) -> dict:
+    return {
+        "id": str(a.id),
+        "name": a.name,
+        "description": a.description,
+        "purpose": a.purpose,
+        "model_tier": a.model_tier,
+        "provider": a.provider,
+        "system_prompt": a.system_prompt,
+        "output_schema": a.output_schema,
+        "temperature": a.temperature,
+        "timeout_seconds": a.timeout_seconds,
+        "max_retries": a.max_retries,
+        "max_tokens": a.max_tokens,
+        "tools": a.tools,
+        "knowledge_bases": a.knowledge_bases,
+        "is_public": a.is_public,
+        "tags": a.tags,
+        "is_builtin": False,
+        "status": a.status,
+    }
 
 
 @router.get("/providers")
@@ -73,7 +97,7 @@ async def list_providers():
 
 
 @router.get("")
-async def list_agents(include_builtin: bool = True):
+async def list_agents(include_builtin: bool = True, db: AsyncSession = Depends(get_db)):
     agents = []
     if include_builtin:
         for a in BUILTIN_AGENTS.values():
@@ -88,173 +112,135 @@ async def list_agents(include_builtin: bool = True):
                 "tags": ["builtin"],
             })
     try:
-        client = get_supabase_client()
-        result = client.table("agents").select("*").execute()
-        for row in result.data:
-            config = row.get("config") or {}
-            agents.append({
-                "id": row["id"],
-                "name": row["name"],
-                "description": row.get("description", ""),
-                "purpose": row.get("purpose", ""),
-                "model_tier": row.get("model_tier", "balanced"),
-                "provider": row.get("provider", "anthropic"),
-                "system_prompt": row.get("system_prompt", ""),
-                "output_schema": row.get("output_schema", {}),
-                "temperature": row.get("temperature") or config.get("temperature", 0.0),
-                "timeout_seconds": row.get("timeout_seconds") or config.get("timeout_seconds", 120),
-                "max_retries": row.get("max_retries") or config.get("max_retries", 3),
-                "max_tokens": row.get("max_tokens") or config.get("max_tokens", 4096),
-                "tools": row.get("tools") or config.get("tools", []),
-                "knowledge_bases": row.get("knowledge_bases") or config.get("knowledge_bases", []),
-                "is_builtin": False,
-                "is_public": row.get("is_public", False),
-                "tags": row.get("tags") or config.get("tags", []),
-                "status": row.get("status", "active"),
-            })
+        result = await db.execute(select(AgentConfig).order_by(AgentConfig.created_at.desc()))
+        for a in result.scalars().all():
+            agents.append(_serialize(a))
     except Exception as e:
-        logger.warning("agents_list_db_error", error=str(e))
+        logger.warning("agents_list_error", error=str(e))
     return agents
 
 
 @router.post("")
-async def create_agent(agent: AgentCreate):
-    client = get_supabase_client()
-    agent_id = str(uuid.uuid4())
-    data = {
-        "id": agent_id,
-        "name": agent.name,
-        "description": agent.description,
-        "purpose": agent.purpose,
-        "model_tier": agent.model_tier,
-        "provider": agent.provider,
-        "system_prompt": agent.system_prompt,
-        "output_schema": agent.output_schema,
-        "temperature": agent.temperature,
-        "timeout_seconds": agent.timeout_seconds,
-        "max_retries": agent.max_retries,
-        "max_tokens": agent.max_tokens,
-        "tools": agent.tools,
-        "knowledge_bases": agent.knowledge_bases,
-        "is_public": agent.is_public,
-        "tags": agent.tags,
-        "status": "active",
-    }
-    try:
-        client.table("agents").insert(data).execute()
-    except Exception as e:
-        logger.error("agent_create_error", error=str(e))
-        raise HTTPException(status_code=500, detail=f"Failed to save agent: {e}") from e
-    return {"id": agent_id, **agent.model_dump()}
-
-
-# === DYNAMIC ROUTES (after static ones) ===
+async def create_agent(agent: AgentCreate, db: AsyncSession = Depends(get_db)):
+    a = AgentConfig(
+        name=agent.name,
+        description=agent.description,
+        purpose=agent.purpose,
+        model_tier=agent.model_tier,
+        provider=agent.provider,
+        system_prompt=agent.system_prompt,
+        output_schema=agent.output_schema,
+        temperature=agent.temperature,
+        timeout_seconds=agent.timeout_seconds,
+        max_retries=agent.max_retries,
+        max_tokens=agent.max_tokens,
+        tools=agent.tools,
+        knowledge_bases=agent.knowledge_bases,
+        is_public=agent.is_public,
+        tags=agent.tags,
+        project_id=uuid.UUID(agent.project_id) if agent.project_id else None,
+    )
+    db.add(a)
+    await db.commit()
+    await db.refresh(a)
+    return _serialize(a)
 
 
 @router.get("/{agent_id}")
-async def get_agent(agent_id: str):
+async def get_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
     if agent_id.startswith("builtin_"):
         name = agent_id.replace("builtin_", "")
         agent = BUILTIN_AGENTS.get(name)
         if not agent:
-            raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
+            raise HTTPException(status_code=404, detail="Agent not found")
         return {**agent, "id": agent_id, "is_builtin": True, "provider": "anthropic", "tools": [], "knowledge_bases": []}
+
     if agent_id in BUILTIN_AGENTS:
         agent = BUILTIN_AGENTS[agent_id]
         return {**agent, "id": f"builtin_{agent_id}", "is_builtin": True, "provider": "anthropic", "tools": [], "knowledge_bases": []}
-    client = get_supabase_client()
-    result = client.table("agents").select("*").eq("id", agent_id).single().execute()
-    if not result.data:
+
+    result = await db.execute(select(AgentConfig).where(AgentConfig.id == uuid.UUID(agent_id)))
+    a = result.scalar_one_or_none()
+    if not a:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    # Resolve stored tools against current library — filter out deleted
-    data = result.data
-    stored_tools = data.get("tools") or []
+    data = _serialize(a)
+    # Resolve tool references against library
     fresh_tools = []
-    for t in stored_tools:
-        tool_name = t.get("name") if isinstance(t, dict) else None
-        if tool_name:
-            try:
-                tr = client.table("tools").select("*").eq("name", tool_name).execute()
-                if tr.data:
-                    fresh_tools.append(tr.data[0])
-                # Skip deleted tools (don't add to list)
-            except Exception:
-                pass
+    for t in data["tools"] or []:
+        name = t.get("name") if isinstance(t, dict) else None
+        if name:
+            tr = await db.execute(select(Tool).where(Tool.name == name))
+            tool = tr.scalar_one_or_none()
+            if tool:
+                fresh_tools.append({
+                    "id": str(tool.id),
+                    "name": tool.name,
+                    "description": tool.description,
+                    "url": tool.url,
+                    "method": tool.method,
+                })
     data["tools"] = fresh_tools
     return data
 
 
 @router.put("/{agent_id}")
-async def update_agent(agent_id: str, update: AgentUpdate):
+async def update_agent(agent_id: str, payload: AgentUpdate, db: AsyncSession = Depends(get_db)):
     if agent_id.startswith("builtin_"):
         raise HTTPException(status_code=400, detail="Cannot edit built-in agents")
-    client = get_supabase_client()
-    data = {k: v for k, v in update.model_dump().items() if v is not None}
+    data = {k: v for k, v in payload.model_dump().items() if v is not None}
 
-    # Validate tools exist in library
+    # Clean tool references
     if "tools" in data and isinstance(data["tools"], list):
-        clean_tools = []
+        clean = []
         for t in data["tools"]:
-            if not isinstance(t, dict):
-                continue
-            name = t.get("name")
-            if not name:
-                continue
-            # Check if tool exists in library
-            try:
-                tr = client.table("tools").select("name").eq("name", name).execute()
-                if tr.data:
-                    clean_tools.append({"name": name, "description": t.get("description", "")})
-            except Exception:
-                pass
-        data["tools"] = clean_tools
+            if isinstance(t, dict) and t.get("name"):
+                tr = await db.execute(select(Tool).where(Tool.name == t["name"]))
+                if tr.scalar_one_or_none():
+                    clean.append({"name": t["name"], "description": t.get("description", "")})
+        data["tools"] = clean
 
     if not data:
         raise HTTPException(status_code=400, detail="No fields to update")
-    try:
-        client.table("agents").update(data).eq("id", agent_id).execute()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-    return {"status": "updated", "id": agent_id}
+
+    await db.execute(update(AgentConfig).where(AgentConfig.id == uuid.UUID(agent_id)).values(**data))
+    await db.commit()
+    return {"status": "updated"}
 
 
 @router.delete("/{agent_id}")
-async def delete_agent(agent_id: str):
+async def delete_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
     if agent_id.startswith("builtin_"):
         raise HTTPException(status_code=400, detail="Cannot delete built-in agents")
-    client = get_supabase_client()
-    client.table("agents").delete().eq("id", agent_id).execute()
-    return {"status": "deleted", "id": agent_id}
-
-
-@router.post("/{agent_id}/share")
-async def share_agent(agent_id: str):
-    if agent_id.startswith("builtin_"):
-        raise HTTPException(status_code=400, detail="Built-in agents are already public")
-    client = get_supabase_client()
-    client.table("agents").update({"is_public": True}).eq("id", agent_id).execute()
-    return {"status": "shared", "id": agent_id}
+    await db.execute(delete(AgentConfig).where(AgentConfig.id == uuid.UUID(agent_id)))
+    await db.commit()
+    return {"status": "deleted"}
 
 
 @router.post("/{agent_id}/clone")
-async def clone_agent(agent_id: str):
-    source = await get_agent(agent_id)
-    new_id = str(uuid.uuid4())
-    client = get_supabase_client()
-    data = {
-        "id": new_id,
-        "name": f"{source.get('name', 'Agent')} (copy)",
-        "description": source.get("description", ""),
-        "purpose": source.get("purpose", ""),
-        "model_tier": source.get("model_tier", "balanced"),
-        "provider": source.get("provider", "anthropic"),
-        "system_prompt": source.get("system_prompt", ""),
-        "output_schema": source.get("output_schema", {}),
-        "tools": source.get("tools", []),
-        "knowledge_bases": source.get("knowledge_bases", []),
-        "is_public": False,
-        "status": "active",
-    }
-    client.table("agents").insert(data).execute()
-    return {"id": new_id, "name": data["name"]}
+async def clone_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
+    source = await get_agent(agent_id, db)
+    new = AgentConfig(
+        name=f"{source.get('name', 'Agent')} (copy)",
+        description=source.get("description", ""),
+        purpose=source.get("purpose", ""),
+        model_tier=source.get("model_tier", "balanced"),
+        provider=source.get("provider", "anthropic"),
+        system_prompt=source.get("system_prompt", ""),
+        output_schema=source.get("output_schema", {}),
+        tools=source.get("tools", []),
+        knowledge_bases=source.get("knowledge_bases", []),
+    )
+    db.add(new)
+    await db.commit()
+    await db.refresh(new)
+    return {"id": str(new.id), "name": new.name}
+
+
+@router.post("/{agent_id}/share")
+async def share_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
+    if agent_id.startswith("builtin_"):
+        raise HTTPException(status_code=400, detail="Built-in agents are always public")
+    await db.execute(update(AgentConfig).where(AgentConfig.id == uuid.UUID(agent_id)).values(is_public=True))
+    await db.commit()
+    return {"status": "shared"}
