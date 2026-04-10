@@ -80,7 +80,11 @@ async def execute_api_tool(
     if isinstance(arguments, dict) and "data" in arguments and len(arguments) == 1 and isinstance(arguments["data"], dict):
         arguments = arguments["data"]
 
+    # Inject credentials into ALL string arguments (LLM may pass "{api_key}" literally)
+    arguments = {k: _inject_credentials(v, credentials) for k, v in arguments.items()}
+
     # Apply credential defaults from parameter schema (e.g. appid={api_key})
+    # Auto-fill missing params that have credential defaults
     params_schema = tool_config.get("parameters", {})
     if isinstance(params_schema, dict):
         props = params_schema.get("properties", {}) or {}
@@ -89,8 +93,9 @@ async def execute_api_tool(
                 continue
             default = spec.get("default")
             if isinstance(default, str) and "{" in default:
+                # Always inject, overwriting any placeholder the LLM passed
                 injected = _inject_credentials(default, credentials)
-                if injected != default and key not in arguments:
+                if injected != default:
                     arguments[key] = injected
 
     # Replace {placeholder} in URL path with arguments (e.g. /users/{id})

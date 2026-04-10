@@ -295,21 +295,26 @@ async def send_message(msg: MessageSend):
                 result = await _execute_tool_call(tc["name"], tc["input"])
                 tool_results.append({"tool": tc["name"], "result": json.loads(result)})
 
-            # Build response text
-            assistant_content = response.content or ""
-            if tool_results:
-                assistant_content += "\n\n**Execution Results:**\n"
-                for tr in tool_results:
-                    tool_name = tr["tool"]
-                    res = tr["result"]
-                    if "error" in res:
-                        assistant_content += f"\n- {tool_name}: Error — {res['error']}"
-                    elif tool_name == "run_agent":
-                        assistant_content += f"\n- Agent `{res.get('status', 'done')}` — {json.dumps(res.get('output', ''), ensure_ascii=False, default=str)[:500]}"
-                    elif tool_name == "run_tool":
-                        assistant_content += f"\n- Tool result: {json.dumps(res.get('data', res), ensure_ascii=False, default=str)[:300]}"
-                    elif tool_name == "start_workflow":
-                        assistant_content += f"\n- Workflow run `{res.get('run_id', '')[:8]}` — status: {res.get('status', 'unknown')}, steps: {res.get('steps_completed', 0)}"
+            # After tool execution, ask LLM to summarize results in natural language
+            initial_response = response.content or ""
+            results_json = json.dumps(tool_results, ensure_ascii=False, default=str)
+
+            summary_request = LLMRequest(
+                model=msg.model or model_router.resolve("balanced"),
+                system_prompt="You just executed some tools. Summarize the results for the user in natural language. Be concise and helpful. Use the user's language. Don't show raw JSON — explain what happened.",
+                messages=[
+                    *messages,
+                    {"role": "assistant", "content": initial_response},
+                    {"role": "user", "content": f"Tool execution results:\n{results_json}\n\nSummarize these results for me in natural language."},
+                ],
+                temperature=0.3,
+                max_tokens=2048,
+            )
+            try:
+                summary = await provider.complete(summary_request)
+                assistant_content = (initial_response + "\n\n" + summary.content).strip() if initial_response else summary.content
+            except Exception:
+                assistant_content = initial_response or "Tools executed."
         else:
             assistant_content = response.content
 
