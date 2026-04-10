@@ -142,7 +142,6 @@ async def create_agent(agent: AgentCreate, db: AsyncSession = Depends(get_db)):
     )
     db.add(a)
     await db.commit()
-    await db.refresh(a)
     return _serialize(a)
 
 
@@ -233,7 +232,6 @@ async def clone_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
     )
     db.add(new)
     await db.commit()
-    await db.refresh(new)
     return {"id": str(new.id), "name": new.name}
 
 

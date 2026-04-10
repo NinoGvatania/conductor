@@ -45,7 +45,6 @@ async def create_workflow(workflow: WorkflowDefinition, db: AsyncSession = Depen
     )
     db.add(w)
     await db.commit()
-    await db.refresh(w)
     return {"id": str(w.id), "name": w.name, "status": "created"}
 
 

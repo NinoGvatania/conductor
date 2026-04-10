@@ -68,7 +68,6 @@ async def create_connection(conn: ConnectionCreate, db: AsyncSession = Depends(g
     )
     db.add(c)
     await db.commit()
-    await db.refresh(c)
     return {"id": str(c.id), "name": c.name}
 
 

@@ -47,7 +47,6 @@ async def create_project(project: ProjectCreate, db: AsyncSession = Depends(get_
     p = Project(name=project.name, description=project.description)
     db.add(p)
     await db.commit()
-    await db.refresh(p)
     return _serialize(p)
 
 
@@ -104,7 +103,6 @@ async def invite_member(project_id: str, invite: MemberInvite, db: AsyncSession 
     )
     db.add(m)
     await db.commit()
-    await db.refresh(m)
     return {"id": str(m.id), "email": m.email, "role": m.role}
 
 

@@ -155,7 +155,6 @@ async def create_tool(tool: ToolCreate, db: AsyncSession = Depends(get_db)):
     )
     db.add(t)
     await db.commit()
-    await db.refresh(t)
     return _serialize(t)
 
 
