@@ -191,6 +191,25 @@ async def update_agent(agent_id: str, update: AgentUpdate):
         raise HTTPException(status_code=400, detail="Cannot edit built-in agents")
     client = get_supabase_client()
     data = {k: v for k, v in update.model_dump().items() if v is not None}
+
+    # Validate tools exist in library
+    if "tools" in data and isinstance(data["tools"], list):
+        clean_tools = []
+        for t in data["tools"]:
+            if not isinstance(t, dict):
+                continue
+            name = t.get("name")
+            if not name:
+                continue
+            # Check if tool exists in library
+            try:
+                tr = client.table("tools").select("name").eq("name", name).execute()
+                if tr.data:
+                    clean_tools.append({"name": name, "description": t.get("description", "")})
+            except Exception:
+                pass
+        data["tools"] = clean_tools
+
     if not data:
         raise HTTPException(status_code=400, detail="No fields to update")
     try:

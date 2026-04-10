@@ -109,7 +109,7 @@ class AgentRunner:
                             result = await execute_api_tool(config, tool_args)
                             executed_tools.append({"name": tool_name, "args": tool_args, "result": result})
                         else:
-                            executed_tools.append({"name": tool_name, "args": tool_args, "result": {"skipped": True}})
+                            executed_tools.append({"name": tool_name, "args": tool_args, "result": {"error": f"Tool '{tool_name}' not found in library or has no URL. Remove it from the agent and add a fresh one from the library."}})
 
                 cost = self.model_router.estimate_cost(
                     agent_contract.model_tier,
