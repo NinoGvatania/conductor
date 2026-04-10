@@ -127,6 +127,14 @@ class OrchestrationEngine:
 
             if node.type == NodeType.agent:
                 step = await self._execute_agent_node(node, run_state)
+                # If agent needs approval, create a chat conversation
+                if step.status == StepStatus.waiting_approval:
+                    await self._notify_user_via_chat(node, step, run_state)
+                    run_state.record_step(step)
+                    run_state.status = RunStatus.paused
+                    run_state.pending_approval = {"node_id": node.id, "agent_name": node.agent_name}
+                    await self.checkpoint.save(run_state)
+                    return run_state
             elif node.type == NodeType.human:
                 step = await self._execute_human_node(node, run_state)
                 if step.status == StepStatus.waiting_approval:
@@ -393,3 +401,45 @@ class OrchestrationEngine:
                 parts.append(f"Configuration: {json.dumps(config_info, ensure_ascii=False, default=str)}")
 
         return "\n\n".join(parts)
+
+    async def _notify_user_via_chat(
+        self, node: NodeDefinition, step: StepResult, run_state: RunState
+    ) -> None:
+        """Agent creates a conversation to ask the user for approval."""
+        try:
+            client = get_supabase_client()
+            import uuid as _uuid
+
+            agent_name = step.agent_name or node.agent_name or node.id
+            conv_id = str(_uuid.uuid4())
+            msg_content = (
+                f"Hi, I'm the **{agent_name}** agent working on run `{run_state.run_id[:8]}`.\n\n"
+                f"I need your input on step **{node.id}**.\n\n"
+            )
+            if step.error:
+                msg_content += f"**Issue:** {step.error}\n\n"
+            msg_content += "Please reply with your decision — approve, reject, or give me guidance."
+
+            client.table("conversations").insert({
+                "id": conv_id,
+                "title": f"{agent_name}: needs approval",
+                "initiated_by": "agent",
+                "agent_name": agent_name,
+            }).execute()
+
+            client.table("messages").insert({
+                "id": str(_uuid.uuid4()),
+                "conversation_id": conv_id,
+                "role": "agent",
+                "content": msg_content,
+                "metadata": json.dumps({
+                    "agent_name": agent_name,
+                    "run_id": run_state.run_id,
+                    "node_id": node.id,
+                    "type": "approval_request",
+                }),
+            }).execute()
+
+            logger.info("agent_chat_created", agent=agent_name, conv_id=conv_id)
+        except Exception as e:
+            logger.warning("agent_chat_failed", error=str(e))

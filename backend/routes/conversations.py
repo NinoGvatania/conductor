@@ -169,6 +169,41 @@ async def send_message(msg: MessageSend):
     }
 
 
+class AgentMessage(BaseModel):
+    agent_name: str
+    content: str
+    project_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+@router.post("/agent-initiated")
+async def agent_creates_conversation(msg: AgentMessage):
+    """An agent creates a new conversation to ask the user something (approval, question, notification)."""
+    client = get_supabase_client()
+    conv_id = str(uuid.uuid4())
+    conv_data: dict[str, Any] = {
+        "id": conv_id,
+        "title": f"{msg.agent_name}: {msg.content[:40]}",
+        "initiated_by": "agent",
+        "agent_name": msg.agent_name,
+    }
+    if msg.project_id:
+        conv_data["project_id"] = msg.project_id
+    client.table("conversations").insert(conv_data).execute()
+
+    msg_id = str(uuid.uuid4())
+    client.table("messages").insert({
+        "id": msg_id,
+        "conversation_id": conv_id,
+        "role": "agent",
+        "content": msg.content,
+        "metadata": json.dumps({"agent_name": msg.agent_name, **msg.metadata}),
+    }).execute()
+
+    logger.info("agent_initiated_chat", agent=msg.agent_name, conv_id=conv_id)
+    return {"conversation_id": conv_id, "agent_name": msg.agent_name}
+
+
 @router.delete("/{conversation_id}")
 async def delete_conversation(conversation_id: str):
     client = get_supabase_client()

@@ -111,15 +111,20 @@ export default function ChatPage() {
           <div className="max-w-2xl mx-auto space-y-4">
             {messages.map((m) => (
               <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div
-                  className="max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap"
-                  style={{
-                    background: m.role === "user" ? "var(--accent)" : "var(--bg-card)",
-                    color: m.role === "user" ? "#fff" : "var(--text-primary)",
-                    border: m.role === "user" ? "none" : "1px solid var(--border)",
-                  }}
-                >
-                  {m.content}
+                <div className="max-w-[80%]">
+                  {m.role === "agent" && (
+                    <div className="text-[10px] font-medium mb-1 px-1" style={{ color: "#f59e0b" }}>Agent</div>
+                  )}
+                  <div
+                    className="px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap"
+                    style={{
+                      background: m.role === "user" ? "var(--accent)" : m.role === "agent" ? "#1a1500" : "var(--bg-card)",
+                      color: m.role === "user" ? "#fff" : "var(--text-primary)",
+                      border: m.role === "user" ? "none" : `1px solid ${m.role === "agent" ? "#f59e0b33" : "var(--border)"}`,
+                    }}
+                  >
+                    {m.content}
+                  </div>
                 </div>
               </div>
             ))}
