@@ -27,14 +27,17 @@ export default function Dashboard() {
   const completed = runs.filter((r) => r.status === "completed").length;
   const totalTokens = stats?.total_tokens || runs.reduce((s, r) => s + (r.total_tokens || 0), 0);
 
-  // Provider chart data
-  const providerData = stats ? Object.entries(stats.by_provider).map(([name, data]) => ({
-    name, input: data.input_tokens, output: data.output_tokens, total: data.total,
-  })) : [];
+  // Provider chart data — filter out zero-token entries
+  const providerData = stats ? Object.entries(stats.by_provider)
+    .filter(([, data]) => data.total > 0)
+    .map(([name, data]) => ({
+      name: name.charAt(0).toUpperCase() + name.slice(1),
+      input: data.input_tokens, output: data.output_tokens, total: data.total,
+    })) : [];
 
-  // Model chart data
+  // Model chart data — filter zero tokens and unknown
   const modelData = stats ? Object.entries(stats.by_model)
-    .filter(([name]) => name !== "unknown")
+    .filter(([name, data]) => name !== "unknown" && data.total > 0)
     .map(([name, data]) => ({ name: name.replace("claude-", "").replace("-20251001", ""), tokens: data.total }))
     .sort((a, b) => b.tokens - a.tokens)
     .slice(0, 6) : [];
@@ -84,7 +87,7 @@ export default function Dashboard() {
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <div className="h-[180px] flex items-center justify-center text-xs" style={{ color: "var(--text-muted)" }}>No data yet</div>
+            <div className="h-[180px] flex items-center justify-center text-xs" style={{ color: "var(--text-muted)" }}>No usage data yet</div>
           )}
         </div>
 
@@ -100,7 +103,7 @@ export default function Dashboard() {
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <div className="h-[180px] flex items-center justify-center text-xs" style={{ color: "var(--text-muted)" }}>No data yet</div>
+            <div className="h-[180px] flex items-center justify-center text-xs" style={{ color: "var(--text-muted)" }}>No usage data yet</div>
           )}
         </div>
       </div>
