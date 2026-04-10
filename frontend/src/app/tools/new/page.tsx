@@ -90,7 +90,8 @@ export default function NewToolPage() {
       {tab === "wizard" && (
         <div className="space-y-4">
           <div>
-            <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Paste API documentation, Swagger/OpenAPI spec, or describe the API</label>
+            <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Paste API documentation or describe the API</label>
+            <p className="text-[10px] mb-2" style={{ color: "#555" }}>Paste actual docs text (not just URL). Works best with Swagger/OpenAPI specs or endpoint descriptions.</p>
             <textarea value={apiDocs} onChange={(e) => setApiDocs(e.target.value)} rows={8} placeholder={"Telegram Bot API:\n\nPOST /sendMessage\n- chat_id (string, required)\n- text (string, required)\n\nPOST /sendPhoto\n- chat_id (string)\n- photo (string, URL)..."} className="w-full px-3 py-2 rounded-md text-sm font-mono" style={s} />
           </div>
           <div>

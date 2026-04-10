@@ -43,27 +43,28 @@ class ToolWizardRequest(BaseModel):
     description: str = ""  # optional hint about what the tool should do
 
 
-WIZARD_PROMPT = """You are an API tool configuration generator. Given API documentation,
-generate a JSON array of tool configurations. Each tool represents one API method/endpoint.
+WIZARD_PROMPT = """You are an API tool configuration generator. Given API documentation or a URL,
+generate a CONCISE JSON array of tool configurations. Extract only the most important endpoints.
 
-Output ONLY valid JSON array. Each tool object:
+Rules:
+- Generate MAX 5-8 most important endpoints (not all)
+- Keep descriptions short (1 sentence)
+- Output ONLY valid JSON array, no markdown
+- Use {api_key} or {token} placeholders in auth headers
+
+Schema for each tool:
 {
   "name": "snake_case_name",
-  "description": "Clear description of what this does and when to use it",
+  "description": "Short description",
   "url": "https://api.example.com/endpoint",
   "method": "GET|POST|PUT|DELETE",
-  "headers": {"Authorization": "Bearer {api_key}", "Content-Type": "application/json"},
+  "headers": {"Authorization": "Bearer {api_key}"},
   "parameters": {
     "type": "object",
-    "properties": {
-      "param_name": {"type": "string", "description": "what this param does"}
-    },
-    "required": ["param_name"]
+    "properties": {"param": {"type": "string"}},
+    "required": ["param"]
   }
-}
-
-Extract ALL available endpoints/methods from the docs. Be thorough.
-Use {api_key} or {token} placeholders in headers for auth values."""
+}"""
 
 
 @router.post("/wizard")
@@ -75,29 +76,46 @@ async def tool_wizard(request: ToolWizardRequest):
     llm_request = LLMRequest(
         model=model_router.resolve("balanced"),
         system_prompt=WIZARD_PROMPT,
-        messages=[{"role": "user", "content": f"Generate tool configs from this API documentation:\n\n{request.api_docs}\n\n{f'Focus on: {request.description}' if request.description else ''}"}],
+        messages=[{"role": "user", "content": f"Generate tool configs from:\n\n{request.api_docs[:5000]}\n\n{f'Focus: {request.description}' if request.description else ''}"}],
         temperature=0.0,
-        max_tokens=4096,
+        max_tokens=8192,
     )
 
     try:
         response = await provider.complete(llm_request)
         content = response.content.strip()
 
+        # Strip markdown code fences
+        if content.startswith("```"):
+            lines = content.split("\n")
+            content = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+
         # Extract JSON array
         start = content.find("[")
-        end = content.rfind("]") + 1
+        end = content.rfind("]")
         if start >= 0 and end > start:
-            content = content[start:end]
+            content = content[start:end + 1]
 
-        tools = json.loads(content)
+        try:
+            tools = json.loads(content)
+        except json.JSONDecodeError:
+            # Try to repair incomplete JSON by removing last incomplete object
+            last_comma = content.rfind("},")
+            if last_comma > 0:
+                content = content[:last_comma + 1] + "]"
+                tools = json.loads(content)
+            else:
+                raise
+
         if not isinstance(tools, list):
             tools = [tools]
 
         return {"tools": tools, "count": len(tools)}
     except json.JSONDecodeError as e:
-        raise HTTPException(status_code=422, detail=f"Failed to parse AI response: {e}") from e
+        logger.error("wizard_json_error", error=str(e), content_preview=content[:500] if content else "")
+        raise HTTPException(status_code=422, detail=f"AI returned invalid JSON. Try providing a shorter documentation or more specific focus.") from e
     except Exception as e:
+        logger.error("wizard_error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
