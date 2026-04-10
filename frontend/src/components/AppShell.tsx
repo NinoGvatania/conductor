@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { usePathname } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import Header from "@/components/Header";
@@ -18,7 +19,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     <>
       <Header />
       <div className="flex pt-12 min-h-screen">
-        <Sidebar />
+        <Suspense><Sidebar /></Suspense>
         <main className="flex-1 ml-56">
           <div className="p-6 max-w-6xl">{children}</div>
         </main>

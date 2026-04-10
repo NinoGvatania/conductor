@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 
 interface Conversation {
@@ -11,31 +11,66 @@ interface Conversation {
   initiated_by: string;
   agent_name: string | null;
   updated_at: string;
+  created_at: string;
 }
 
 const navItems = [
   { href: "/", label: "Dashboard" },
-  { href: "/chat", label: "Chat" },
   { href: "/workflows", label: "Workflows" },
   { href: "/agents", label: "Agents" },
   { href: "/tools", label: "Tools" },
   { href: "/settings", label: "Settings" },
 ];
 
+function groupByDate(conversations: Conversation[]): Record<string, Conversation[]> {
+  const groups: Record<string, Conversation[]> = {};
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today.getTime() - 86400000);
+  const weekAgo = new Date(today.getTime() - 7 * 86400000);
+
+  for (const c of conversations) {
+    const d = new Date(c.updated_at || c.created_at);
+    let group: string;
+    if (d >= today) group = "Today";
+    else if (d >= yesterday) group = "Yesterday";
+    else if (d >= weekAgo) group = "This week";
+    else group = "Older";
+    (groups[group] = groups[group] || []).push(c);
+  }
+  return groups;
+}
+
 export default function Sidebar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const activeConvId = searchParams.get("id");
   const [conversations, setConversations] = useState<Conversation[]>([]);
 
   useEffect(() => {
-    api.listConversations().then((c) => setConversations(c as Conversation[])).catch(() => {});
+    api.listConversations().then((c) => setConversations(c as Conversation[])).catch(console.error);
   }, [pathname]);
+
+  const grouped = groupByDate(conversations);
+  const groupOrder = ["Today", "Yesterday", "This week", "Older"];
+  const isOnChat = pathname === "/chat";
 
   return (
     <aside className="w-56 flex flex-col fixed h-[calc(100vh-48px)] top-12 overflow-hidden" style={{ background: "var(--bg-secondary)", borderRight: "1px solid var(--border)" }}>
+      {/* New Session button */}
+      <Link
+        href="/chat"
+        className="flex items-center gap-2 mx-3 mt-3 mb-1 px-3 py-2 rounded-lg text-[13px] transition-colors"
+        style={{ color: "var(--text-secondary)", border: "1px solid var(--border)" }}
+      >
+        <span style={{ fontSize: 14 }}>+</span>
+        <span>New session</span>
+      </Link>
+
       {/* Navigation */}
-      <nav className="py-3 px-2 flex flex-col gap-px">
+      <nav className="py-2 px-2 flex flex-col gap-px">
         {navItems.map((item) => {
-          const active = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href) && item.href !== "/chat");
+          const active = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
           return (
             <Link
               key={item.href}
@@ -53,38 +88,40 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Divider */}
-      <div className="mx-3 mb-1" style={{ borderTop: "1px solid var(--border)" }} />
-
       {/* Chat History */}
-      <div className="flex items-center justify-between px-3 py-1">
-        <span className="text-[10px] uppercase tracking-wider font-medium" style={{ color: "var(--text-muted)" }}>Chats</span>
-        <Link href="/chat" className="text-[10px] px-1.5 py-0.5 rounded" style={{ color: "var(--text-muted)", border: "1px solid var(--border)" }}>+</Link>
-      </div>
-
       <div className="flex-1 overflow-y-auto px-2 pb-3">
-        {conversations.map((c) => {
-          const isActive = pathname === `/chat?id=${c.id}` || pathname === `/chat/${c.id}`;
-          const isAgent = c.initiated_by === "agent";
+        {groupOrder.map((group) => {
+          const items = grouped[group];
+          if (!items || items.length === 0) return null;
           return (
-            <Link
-              key={c.id}
-              href={`/chat?id=${c.id}`}
-              className="flex items-start gap-2 px-2 py-1.5 rounded-md text-[12px] mb-0.5 transition-colors group"
-              style={{
-                color: isActive ? "var(--text-primary)" : "var(--text-muted)",
-                background: isActive ? "var(--bg-hover)" : "transparent",
-              }}
-            >
-              {isAgent && (
-                <span className="w-1.5 h-1.5 rounded-full mt-1 shrink-0" style={{ background: "#f59e0b" }} />
-              )}
-              <span className="truncate leading-tight">{c.title || "New Chat"}</span>
-            </Link>
+            <div key={group}>
+              <div className="px-3 pt-3 pb-1">
+                <span className="text-[10px] font-medium" style={{ color: "var(--text-muted)" }}>{group}</span>
+              </div>
+              {items.map((c) => {
+                const isActive = isOnChat && activeConvId === c.id;
+                const isAgent = c.initiated_by === "agent";
+                return (
+                  <Link
+                    key={c.id}
+                    href={`/chat?id=${c.id}`}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[12px] mb-px transition-colors"
+                    style={{
+                      color: isActive ? "var(--text-primary)" : "var(--text-muted)",
+                      background: isActive ? "var(--bg-hover)" : "transparent",
+                      fontWeight: isActive ? 500 : 400,
+                    }}
+                  >
+                    {isAgent && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: "#f59e0b" }} />}
+                    <span className="truncate">{c.title || "New Chat"}</span>
+                  </Link>
+                );
+              })}
+            </div>
           );
         })}
         {conversations.length === 0 && (
-          <p className="text-[11px] px-2 py-2" style={{ color: "var(--text-muted)" }}>No chats yet</p>
+          <p className="text-[11px] px-3 py-4 text-center" style={{ color: "var(--text-muted)" }}>No conversations yet</p>
         )}
       </div>
     </aside>
