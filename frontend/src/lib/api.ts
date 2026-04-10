@@ -64,6 +64,7 @@ export const api = {
   // Runs
   listRuns: (status?: string) => request(`/api/runs${status ? `?status=${status}` : ""}`),
   getRun: (runId: string) => request(`/api/runs/${runId}`),
+  getTokenStats: () => request("/api/runs/stats"),
 
   // LLM Providers
   getProviderCatalog: () => request("/api/llm-providers/catalog"),
