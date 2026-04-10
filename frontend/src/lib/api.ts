@@ -81,6 +81,8 @@ export const api = {
     }),
   disconnectProvider: (id: string) =>
     request(`/api/llm-providers/${id}/disconnect`, { method: "POST" }),
+  getProviderModels: (provider: string) =>
+    request(`/api/llm-providers/${provider}/models`),
 
   // Files
   uploadFile: async (file: File, agentId = "") => {

@@ -101,6 +101,20 @@ async def get_catalog():
     return PROVIDER_CATALOG
 
 
+@router.get("/{provider_name}/models")
+async def get_provider_models(provider_name: str):
+    """Fetch available models from a connected provider's API."""
+    from backend.core.providers.model_fetcher import fetch_models
+    models = await fetch_models(provider_name)
+    if not models:
+        # Fallback to catalog defaults
+        for p in PROVIDER_CATALOG:
+            if p["id"] == provider_name:
+                return p.get("models", [])
+        return []
+    return models
+
+
 @router.get("")
 async def list_connected(project_id: str | None = None):
     client = get_supabase_client()
@@ -130,15 +144,18 @@ async def connect_provider(data: ProviderConnect):
         row["project_id"] = data.project_id
 
     from backend.core.providers.key_store import clear_cache
+    from backend.core.providers.model_fetcher import clear_models_cache
 
     if existing.data:
         client.table("llm_providers").update(row).eq("id", existing.data[0]["id"]).execute()
         clear_cache()
+        clear_models_cache(data.provider)
         return {"status": "updated", "provider": data.provider}
     else:
         row["id"] = str(uuid.uuid4())
         client.table("llm_providers").insert(row).execute()
         clear_cache()
+        clear_models_cache(data.provider)
         return {"status": "connected", "provider": data.provider}
 
 

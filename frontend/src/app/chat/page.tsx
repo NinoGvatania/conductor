@@ -18,7 +18,26 @@ function ChatContent() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [model, setModel] = useState("claude-sonnet-4-6");
+  const [availableModels, setAvailableModels] = useState<Array<{ id: string; name: string; provider: string }>>([]);
   const messagesEnd = useRef<HTMLDivElement>(null);
+
+  // Load models from connected providers
+  useEffect(() => {
+    async function loadModels() {
+      const providers = ["anthropic", "openai", "gemini", "mistral", "yandexgpt", "gigachat"];
+      const allModels: Array<{ id: string; name: string; provider: string }> = [];
+      for (const p of providers) {
+        try {
+          const models = (await api.getProviderModels(p)) as Array<{ id: string; name: string; provider?: string }>;
+          if (Array.isArray(models) && models.length > 0) {
+            allModels.push(...models.map((m) => ({ ...m, provider: m.provider || p })));
+          }
+        } catch {}
+      }
+      if (allModels.length > 0) setAvailableModels(allModels);
+    }
+    loadModels();
+  }, []);
 
   // Sync with URL param
   useEffect(() => {
@@ -124,20 +143,32 @@ function ChatContent() {
               className="px-2 py-1 rounded text-[11px]"
               style={{ background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
             >
-              <optgroup label="Anthropic">
-                <option value="claude-haiku-4-5-20251001">Claude Haiku (fast)</option>
-                <option value="claude-sonnet-4-6">Claude Sonnet (balanced)</option>
-                <option value="claude-opus-4-6">Claude Opus (powerful)</option>
-              </optgroup>
-              <optgroup label="OpenAI">
-                <option value="gpt-4o-mini">GPT-4o Mini (fast)</option>
-                <option value="gpt-4o">GPT-4o (balanced)</option>
-                <option value="o3">o3 (powerful)</option>
-              </optgroup>
-              <optgroup label="Google">
-                <option value="gemini-2.0-flash">Gemini Flash</option>
-                <option value="gemini-2.5-pro">Gemini Pro</option>
-              </optgroup>
+              {availableModels.length > 0 ? (
+                Object.entries(
+                  availableModels.reduce((acc, m) => {
+                    (acc[m.provider] = acc[m.provider] || []).push(m);
+                    return acc;
+                  }, {} as Record<string, typeof availableModels>)
+                ).map(([provider, models]) => (
+                  <optgroup key={provider} label={provider.charAt(0).toUpperCase() + provider.slice(1)}>
+                    {models.map((m) => (
+                      <option key={m.id} value={m.id}>{m.name}</option>
+                    ))}
+                  </optgroup>
+                ))
+              ) : (
+                <>
+                  <optgroup label="Anthropic">
+                    <option value="claude-haiku-4-5-20251001">Claude Haiku</option>
+                    <option value="claude-sonnet-4-6">Claude Sonnet</option>
+                    <option value="claude-opus-4-6">Claude Opus</option>
+                  </optgroup>
+                  <optgroup label="OpenAI">
+                    <option value="gpt-4o-mini">GPT-4o Mini</option>
+                    <option value="gpt-4o">GPT-4o</option>
+                  </optgroup>
+                </>
+              )}
             </select>
           </div>
           <div className="flex gap-2">
