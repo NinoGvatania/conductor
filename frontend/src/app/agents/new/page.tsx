@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import AgentChatHelper from "@/components/AgentChatHelper";
+import ToolPicker from "@/components/ToolPicker";
 
 interface CatalogProvider { id: string; name: string; models: Array<{ id: string; name: string; tier: string }>; }
 
@@ -22,6 +23,7 @@ export default function NewAgentPage() {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showToolPicker, setShowToolPicker] = useState(false);
   const [form, setForm] = useState({
     name: "", description: "", purpose: "",
     provider: "anthropic", model_tier: "balanced",
@@ -112,8 +114,24 @@ export default function NewAgentPage() {
         <div>
           <div className="flex justify-between items-center mb-2">
             <label className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>Tools (API Integrations)</label>
-            <button onClick={() => update("tools", [...form.tools, { name: "", description: "", url: "", method: "POST", headers: "", parameters: "" }])} className="text-xs" style={{ color: "var(--accent-light, #3291ff)" }}>+ Add Tool</button>
+            <div className="flex gap-2">
+              <button onClick={() => setShowToolPicker(true)} className="text-xs px-2 py-0.5 rounded" style={{ color: "#0cce6b", border: "1px solid var(--border)" }}>From Library</button>
+              <button onClick={() => update("tools", [...form.tools, { name: "", description: "", url: "", method: "POST", headers: "", parameters: "" }])} className="text-xs" style={{ color: "var(--accent-light, #3291ff)" }}>+ Manual</button>
+            </div>
           </div>
+          {showToolPicker && (
+            <ToolPicker
+              selectedNames={form.tools.map((t) => t.name)}
+              onSelect={(picked) => {
+                const newTools = picked.map((t) => ({
+                  name: t.name, description: t.description, url: t.url,
+                  method: t.method, headers: "", parameters: "",
+                }));
+                update("tools", [...form.tools, ...newTools]);
+              }}
+              onClose={() => setShowToolPicker(false)}
+            />
+          )}
           {form.tools.map((tool, i) => (
             <div key={i} className="rounded-lg p-3 mb-2" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
               <div className="flex justify-between mb-2">
