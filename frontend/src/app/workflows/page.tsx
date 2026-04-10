@@ -11,8 +11,31 @@ export default function WorkflowsPage() {
   const [tab, setTab] = useState<"my" | "library">("my");
 
   useEffect(() => {
-    api.listWorkflows().then((w) => setWorkflows(w as Workflow[])).catch(() => {});
+    loadWorkflows();
   }, []);
+
+  async function loadWorkflows() {
+    try { setWorkflows((await api.listWorkflows()) as Workflow[]); } catch {}
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm("Delete this workflow?")) return;
+    try {
+      await api.deleteWorkflow(id);
+      setWorkflows((prev) => prev.filter((w) => w.id !== id));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Failed to delete");
+    }
+  }
+
+  async function handleRun(id: string) {
+    try {
+      await api.startRun(id);
+      alert("Run started! Check Dashboard for results.");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Failed to start run");
+    }
+  }
 
   return (
     <div>
@@ -38,16 +61,35 @@ export default function WorkflowsPage() {
         workflows.length === 0 ? (
           <div className="rounded-lg py-16 text-center" style={{ border: "1px solid var(--border)" }}>
             <p className="text-sm mb-2" style={{ color: "var(--text-muted)" }}>No workflows yet</p>
-            <Link href="/workflows/editor" className="text-xs" style={{ color: "var(--accent-light, #3291ff)" }}>Create your first workflow →</Link>
+            <Link href="/workflows/editor" className="text-xs" style={{ color: "#3291ff" }}>Create your first workflow →</Link>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {workflows.map((w) => (
-              <div key={w.id} className="rounded-lg p-4" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
-                <div className="text-sm font-medium mb-1" style={{ color: "var(--text-primary)" }}>{w.name || "Unnamed"}</div>
-                <div className="text-xs" style={{ color: "var(--text-muted)" }}>v{w.version || "1.0.0"} · {w.created_at ? new Date(w.created_at).toLocaleDateString() : "—"}</div>
-              </div>
-            ))}
+          <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+            <table className="w-full">
+              <thead>
+                <tr style={{ background: "var(--bg-card)" }}>
+                  {["Name", "Version", "Created", "Actions"].map((h) => (
+                    <th key={h} className="px-4 py-2.5 text-left text-[10px] font-medium uppercase tracking-wider" style={{ color: "var(--text-muted)", borderBottom: "1px solid var(--border)" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {workflows.map((w) => (
+                  <tr key={w.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                    <td className="px-4 py-3 text-sm font-medium" style={{ color: "var(--text-primary)" }}>{w.name || "Unnamed"}</td>
+                    <td className="px-4 py-3 text-xs" style={{ color: "var(--text-muted)" }}>v{w.version || "1.0.0"}</td>
+                    <td className="px-4 py-3 text-xs" style={{ color: "var(--text-muted)" }}>{w.created_at ? new Date(w.created_at).toLocaleDateString() : "—"}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-2">
+                        <button onClick={() => handleRun(w.id)} className="text-[11px] px-2 py-0.5 rounded" style={{ color: "#0cce6b", border: "1px solid var(--border)" }}>Run</button>
+                        <Link href={`/workflows/editor?id=${w.id}`} className="text-[11px] px-2 py-0.5 rounded" style={{ color: "var(--text-secondary)", border: "1px solid var(--border)" }}>Edit</Link>
+                        <button onClick={() => handleDelete(w.id)} className="text-[11px] px-2 py-0.5 rounded" style={{ color: "#ee0000", border: "1px solid var(--border)" }}>Delete</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )
       )}

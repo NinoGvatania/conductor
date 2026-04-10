@@ -25,7 +25,6 @@ async def list_workflows():
 @router.post("")
 async def create_workflow(workflow: WorkflowDefinition):
     client = get_supabase_client()
-    # Always generate a fresh UUID to avoid duplicate key errors
     workflow_id = str(uuid.uuid4())
     data = {
         "id": workflow_id,
@@ -39,6 +38,41 @@ async def create_workflow(workflow: WorkflowDefinition):
         logger.error("workflow_create_error", error=str(e))
         raise HTTPException(status_code=500, detail=f"Failed to save workflow: {e}") from e
     return {"id": workflow_id, "name": workflow.name, "status": "created"}
+
+
+@router.get("/{workflow_id}")
+async def get_workflow(workflow_id: str):
+    client = get_supabase_client()
+    try:
+        result = client.table("workflows").select("*").eq("id", workflow_id).single().execute()
+    except Exception as e:
+        raise HTTPException(status_code=404, detail="Workflow not found") from e
+    return result.data
+
+
+@router.put("/{workflow_id}")
+async def update_workflow(workflow_id: str, workflow: WorkflowDefinition):
+    client = get_supabase_client()
+    data = {
+        "name": workflow.name,
+        "version": workflow.version,
+        "definition_json": workflow.model_dump_json(),
+    }
+    try:
+        client.table("workflows").update(data).eq("id", workflow_id).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    return {"id": workflow_id, "status": "updated"}
+
+
+@router.delete("/{workflow_id}")
+async def delete_workflow(workflow_id: str):
+    client = get_supabase_client()
+    try:
+        client.table("workflows").delete().eq("id", workflow_id).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    return {"id": workflow_id, "status": "deleted"}
 
 
 @router.post("/{workflow_id}/run")
