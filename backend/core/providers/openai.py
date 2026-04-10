@@ -19,14 +19,22 @@ MODEL_MAP: dict[str, str] = {
 
 class OpenAIProvider(LLMProvider):
     def __init__(self, api_key: str | None = None) -> None:
-        try:
-            import openai
-        except ImportError:
-            raise ImportError("Install openai: pip install openai")
-        key = api_key or get_api_key("openai")
-        if not key:
-            raise ValueError("OpenAI API key not configured. Go to Settings → OpenAI → Connect.")
-        self.client = openai.AsyncOpenAI(api_key=key)
+        self._api_key = api_key
+        self._client = None
+
+    async def _get_client(self):
+        if self._client is None:
+            try:
+                import openai
+            except ImportError:
+                raise ImportError("Install openai: pip install openai")
+            key = self._api_key
+            if not key:
+                key = await get_api_key("openai")
+            if not key:
+                raise ValueError("OpenAI API key not configured. Go to Settings → OpenAI → Connect.")
+            self._client = openai.AsyncOpenAI(api_key=key)
+        return self._client
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
         import openai
@@ -48,7 +56,8 @@ class OpenAIProvider(LLMProvider):
             kwargs["response_format"] = {"type": "json_object"}
 
         try:
-            response = await self.client.chat.completions.create(**kwargs)
+            client = await self._get_client()
+            response = await client.chat.completions.create(**kwargs)
         except openai.RateLimitError as e:
             raise RetriableError(str(e), reason="rate_limit") from e
         except openai.APITimeoutError as e:
@@ -86,7 +95,8 @@ class OpenAIProvider(LLMProvider):
 
     async def health_check(self) -> bool:
         try:
-            await self.client.chat.completions.create(
+            client = await self._get_client()
+            await client.chat.completions.create(
                 model=MODEL_MAP["fast"],
                 max_tokens=10,
                 messages=[{"role": "user", "content": "ping"}],

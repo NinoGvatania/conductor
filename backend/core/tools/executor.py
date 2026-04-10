@@ -8,18 +8,25 @@ import structlog
 logger = structlog.get_logger()
 
 
-def _get_connection_credentials(connection_id: str) -> dict[str, Any]:
-    """Fetch credentials for a connection from DB."""
+async def _get_connection_credentials(connection_id: str) -> dict[str, Any]:
+    """Fetch credentials for a connection from DB (async)."""
     try:
-        from backend.database import get_supabase_client
-        client = get_supabase_client()
-        result = client.table("connections").select("*").eq("id", connection_id).single().execute()
-        if result.data:
-            return {
-                "credentials": result.data.get("credentials", {}) or {},
-                "base_url": result.data.get("base_url", ""),
-                "auth_type": result.data.get("auth_type", "api_key"),
-            }
+        import uuid as _uuid
+
+        from sqlalchemy import select
+
+        from backend.database import async_session_factory
+        from backend.models import Connection
+
+        async with async_session_factory() as db:
+            result = await db.execute(select(Connection).where(Connection.id == _uuid.UUID(connection_id)))
+            conn = result.scalar_one_or_none()
+            if conn:
+                return {
+                    "credentials": conn.credentials or {},
+                    "base_url": conn.base_url or "",
+                    "auth_type": conn.auth_type or "api_key",
+                }
     except Exception as e:
         logger.warning("connection_fetch_error", error=str(e))
     return {"credentials": {}, "base_url": "", "auth_type": "api_key"}
@@ -57,7 +64,7 @@ async def execute_api_tool(
     conn_base_url = ""
     connection_id = tool_config.get("connection_id")
     if connection_id:
-        conn_data = _get_connection_credentials(connection_id)
+        conn_data = await _get_connection_credentials(connection_id)
         credentials = conn_data["credentials"]
         conn_base_url = conn_data["base_url"]
 

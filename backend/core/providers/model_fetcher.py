@@ -19,7 +19,7 @@ async def fetch_models(provider: str, force_refresh: bool = False) -> list[dict[
         if time.time() - cached_at < CACHE_TTL:
             return models
 
-    api_key = get_api_key(provider)
+    api_key = await get_api_key(provider)
     if not api_key:
         return []
 
@@ -121,7 +121,7 @@ async def _fetch_from_provider(provider: str, api_key: str) -> list[dict[str, st
             return models
 
         elif provider == "custom":
-            base_url = get_base_url("custom")
+            base_url = await get_base_url("custom")
             if not base_url:
                 return []
             resp = await client.get(

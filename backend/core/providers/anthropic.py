@@ -21,10 +21,19 @@ MODEL_MAP: dict[str, str] = {
 
 class AnthropicProvider(LLMProvider):
     def __init__(self, api_key: str | None = None) -> None:
-        key = api_key or get_api_key("anthropic")
-        if not key:
-            raise ValueError("Anthropic API key not configured. Go to Settings → Anthropic → Connect.")
-        self.client = anthropic.AsyncAnthropic(api_key=key)
+        # Lazy init — key will be loaded on first complete() call
+        self._api_key = api_key
+        self._client: anthropic.AsyncAnthropic | None = None
+
+    async def _get_client(self) -> anthropic.AsyncAnthropic:
+        if self._client is None:
+            key = self._api_key
+            if not key:
+                key = await get_api_key("anthropic")
+            if not key:
+                raise ValueError("Anthropic API key not configured. Go to Settings → Anthropic → Connect.")
+            self._client = anthropic.AsyncAnthropic(api_key=key)
+        return self._client
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
         max_retries = 3
@@ -59,7 +68,8 @@ class AnthropicProvider(LLMProvider):
         if request.tools:
             kwargs["tools"] = request.tools
 
-        response = await self.client.messages.create(**kwargs)
+        client = await self._get_client()
+        response = await client.messages.create(**kwargs)
         latency_ms = (time.monotonic() - start) * 1000
 
         content = ""
@@ -92,7 +102,8 @@ class AnthropicProvider(LLMProvider):
 
     async def health_check(self) -> bool:
         try:
-            await self.client.messages.create(
+            client = await self._get_client()
+            await client.messages.create(
                 model=MODEL_MAP["fast"],
                 max_tokens=10,
                 messages=[{"role": "user", "content": "ping"}],

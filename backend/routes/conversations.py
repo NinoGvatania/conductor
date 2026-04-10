@@ -349,13 +349,13 @@ async def send_message(msg: MessageSend, db: AsyncSession = Depends(get_db)):
             update(Conversation).where(Conversation.id == conv_id).values(title=msg.content[:50])
         )
 
+    msg_id = assistant_msg.id
     await db.commit()
-    await db.refresh(assistant_msg)
 
     return {
         "conversation_id": str(conv_id),
         "message": {
-            "id": str(assistant_msg.id),
+            "id": str(msg_id),
             "role": "assistant",
             "content": assistant_content,
         },
