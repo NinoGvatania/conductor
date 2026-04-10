@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { usePathname } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import Header from "@/components/Header";
+import { AuthGuard } from "@/hooks/useAuth";
 
 const AUTH_ROUTES = ["/login", "/signup"];
 
@@ -16,7 +17,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <>
+    <AuthGuard>
       <Header />
       <div className="flex pt-12 min-h-screen">
         <Suspense><Sidebar /></Suspense>
@@ -24,6 +25,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <div className="p-6 max-w-6xl">{children}</div>
         </main>
       </div>
-    </>
+    </AuthGuard>
   );
 }
