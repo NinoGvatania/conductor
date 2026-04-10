@@ -30,7 +30,7 @@ async def get_token_stats():
             run = RunState.model_validate_json(row["state_json"])
             for step in run.steps:
                 provider = step.provider or "anthropic"
-                model = step.model or "unknown"
+                model = step.model or (step.agent_name if step.agent_name else "unknown")
                 tokens = step.tokens_used or 0
                 inp = step.input_tokens or 0
                 out = step.output_tokens or 0

@@ -82,8 +82,7 @@ export default function Dashboard() {
                 <XAxis dataKey="name" tick={{ fill: "#666", fontSize: 10 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fill: "#666", fontSize: 10 }} axisLine={false} tickLine={false} />
                 <Tooltip contentStyle={{ background: "#111", border: "1px solid #333", borderRadius: 8, fontSize: 11 }} />
-                <Bar dataKey="input" stackId="a" fill="#3b82f6" name="Input" radius={[0, 0, 0, 0]} />
-                <Bar dataKey="output" stackId="a" fill="#6366f1" name="Output" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="total" fill="#6366f1" name="Tokens" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           ) : (
