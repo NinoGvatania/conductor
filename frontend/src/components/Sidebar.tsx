@@ -48,7 +48,7 @@ export default function Sidebar() {
 
   useEffect(() => {
     api.listConversations().then((c) => setConversations(c as Conversation[])).catch(console.error);
-  }, [pathname]);
+  }, []);
 
   const grouped = groupByDate(conversations);
   const groupOrder = ["Today", "Yesterday", "This week", "Older"];

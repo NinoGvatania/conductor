@@ -1,10 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, lazy, Suspense } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+import dynamic from "next/dynamic";
+
+const BarChart = dynamic(() => import("recharts").then((m) => ({ default: m.BarChart })), { ssr: false });
+const Bar = dynamic(() => import("recharts").then((m) => ({ default: m.Bar })), { ssr: false });
+const XAxis = dynamic(() => import("recharts").then((m) => ({ default: m.XAxis })), { ssr: false });
+const YAxis = dynamic(() => import("recharts").then((m) => ({ default: m.YAxis })), { ssr: false });
+const Tooltip = dynamic(() => import("recharts").then((m) => ({ default: m.Tooltip })), { ssr: false });
+const ResponsiveContainer = dynamic(() => import("recharts").then((m) => ({ default: m.ResponsiveContainer })), { ssr: false });
+const PieChart = dynamic(() => import("recharts").then((m) => ({ default: m.PieChart })), { ssr: false });
+const Pie = dynamic(() => import("recharts").then((m) => ({ default: m.Pie })), { ssr: false });
+const Cell = dynamic(() => import("recharts").then((m) => ({ default: m.Cell })), { ssr: false });
 
 interface Run { id: string; workflow_id: string; status: string; total_cost_usd: number; total_tokens: number; total_steps: number; created_at: string; }
 interface TokenStats { by_provider: Record<string, { input_tokens: number; output_tokens: number; total: number }>; by_model: Record<string, { input_tokens: number; output_tokens: number; total: number }>; total_tokens: number; }

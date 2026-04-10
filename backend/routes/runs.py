@@ -11,9 +11,20 @@ logger = structlog.get_logger()
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
 
+import time as _time
+
+_stats_cache: dict[str, tuple[float, dict]] = {}
+STATS_CACHE_TTL = 60  # seconds
+
+
 @router.get("/stats")
 async def get_token_stats():
     """Aggregate token usage from ALL sources: workflow runs + chat messages."""
+    if "stats" in _stats_cache:
+        cached_at, data = _stats_cache["stats"]
+        if _time.time() - cached_at < STATS_CACHE_TTL:
+            return data
+
     client = get_supabase_client()
 
     by_provider: dict[str, dict[str, int]] = defaultdict(lambda: {"input_tokens": 0, "output_tokens": 0, "total": 0})
@@ -81,11 +92,13 @@ async def get_token_stats():
     except Exception as e:
         logger.warning("stats_messages_error", error=str(e))
 
-    return {
+    result = {
         "by_provider": dict(by_provider),
         "by_model": dict(by_model),
         "total_tokens": total_tokens,
     }
+    _stats_cache["stats"] = (_time.time(), result)
+    return result
 
 
 @router.get("")
