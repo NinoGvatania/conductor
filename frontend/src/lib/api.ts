@@ -48,9 +48,12 @@ export const api = {
   updateTool: (id: string, data: Record<string, unknown>) =>
     request(`/api/tools/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteTool: (id: string) => request(`/api/tools/${id}`, { method: "DELETE" }),
+  generateToolsFromDocs: (apiDocs: string, description = "") =>
+    request("/api/tools/wizard", { method: "POST", body: JSON.stringify({ api_docs: apiDocs, description }) }),
 
   // Workflows
   listWorkflows: () => request("/api/workflows"),
+  getWorkflowLibrary: () => request("/api/workflows/library"),
   getWorkflow: (id: string) => request(`/api/workflows/${id}`),
   createWorkflow: (workflow: Record<string, unknown>) =>
     request("/api/workflows", { method: "POST", body: JSON.stringify(workflow) }),
@@ -77,6 +80,23 @@ export const api = {
     }),
   disconnectProvider: (id: string) =>
     request(`/api/llm-providers/${id}/disconnect`, { method: "POST" }),
+
+  // Files
+  uploadFile: async (file: File, agentId = "") => {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("agent_id", agentId);
+    const res = await fetch(`${API_BASE}/api/files/upload`, { method: "POST", body: formData });
+    if (!res.ok) throw new Error("Upload failed");
+    return res.json();
+  },
+
+  // Project members
+  listMembers: (projectId: string) => request(`/api/projects/${projectId}/members`),
+  inviteMember: (projectId: string, email: string, role: string) =>
+    request(`/api/projects/${projectId}/members`, { method: "POST", body: JSON.stringify({ email, role }) }),
+  removeMember: (projectId: string, memberId: string) =>
+    request(`/api/projects/${projectId}/members/${memberId}`, { method: "DELETE" }),
 
   // Legacy
   chat: (message: string) =>

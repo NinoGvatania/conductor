@@ -5,36 +5,33 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 
 interface Workflow { id: string; name: string; version: string; created_at: string; }
+interface Template { id: string; name: string; description: string; tags: string[]; definition: Record<string, unknown>; }
 
 export default function WorkflowsPage() {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
+  const [templates, setTemplates] = useState<Template[]>([]);
   const [tab, setTab] = useState<"my" | "library">("my");
 
   useEffect(() => {
-    loadWorkflows();
+    api.listWorkflows().then((w) => setWorkflows(w as Workflow[])).catch(() => {});
+    api.getWorkflowLibrary().then((t) => setTemplates(t as Template[])).catch(() => {});
   }, []);
-
-  async function loadWorkflows() {
-    try { setWorkflows((await api.listWorkflows()) as Workflow[]); } catch {}
-  }
 
   async function handleDelete(id: string) {
     if (!confirm("Delete this workflow?")) return;
-    try {
-      await api.deleteWorkflow(id);
-      setWorkflows((prev) => prev.filter((w) => w.id !== id));
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to delete");
-    }
+    try { await api.deleteWorkflow(id); setWorkflows((p) => p.filter((w) => w.id !== id)); } catch {}
   }
 
   async function handleRun(id: string) {
+    try { await api.startRun(id); alert("Run started!"); } catch (e) { alert(e instanceof Error ? e.message : "Failed"); }
+  }
+
+  async function handleUseTemplate(template: Template) {
     try {
-      await api.startRun(id);
-      alert("Run started! Check Dashboard for results.");
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to start run");
-    }
+      const result = (await api.createWorkflow(template.definition)) as { id: string };
+      setWorkflows((prev) => [{ id: result.id, name: template.name, version: "1.0.0", created_at: new Date().toISOString() }, ...prev]);
+      setTab("my");
+    } catch (e) { alert(e instanceof Error ? e.message : "Failed"); }
   }
 
   return (
@@ -49,10 +46,10 @@ export default function WorkflowsPage() {
         </Link>
       </div>
 
-      <div className="flex gap-1 mb-4 p-0.5 rounded-md w-fit" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
+      <div className="flex gap-1 mb-6 p-0.5 rounded-md w-fit" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
         {(["my", "library"] as const).map((t) => (
-          <button key={t} onClick={() => setTab(t)} className="px-3 py-1 rounded text-xs font-medium capitalize" style={{ background: tab === t ? "var(--bg-hover)" : "transparent", color: tab === t ? "var(--text-primary)" : "var(--text-muted)" }}>
-            {t === "my" ? "My Workflows" : "Library"}
+          <button key={t} onClick={() => setTab(t)} className="px-3 py-1 rounded text-xs font-medium" style={{ background: tab === t ? "var(--bg-hover)" : "transparent", color: tab === t ? "var(--text-primary)" : "var(--text-muted)" }}>
+            {t === "my" ? `My Workflows (${workflows.length})` : `Library (${templates.length})`}
           </button>
         ))}
       </div>
@@ -61,7 +58,9 @@ export default function WorkflowsPage() {
         workflows.length === 0 ? (
           <div className="rounded-lg py-16 text-center" style={{ border: "1px solid var(--border)" }}>
             <p className="text-sm mb-2" style={{ color: "var(--text-muted)" }}>No workflows yet</p>
-            <Link href="/workflows/editor" className="text-xs" style={{ color: "#3291ff" }}>Create your first workflow →</Link>
+            <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+              <Link href="/workflows/editor" style={{ color: "#3291ff" }}>Create from scratch</Link> or use a template from the <button onClick={() => setTab("library")} style={{ color: "#3291ff" }}>Library</button>
+            </p>
           </div>
         ) : (
           <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
@@ -95,9 +94,23 @@ export default function WorkflowsPage() {
       )}
 
       {tab === "library" && (
-        <div className="rounded-lg py-16 text-center" style={{ border: "1px solid var(--border)" }}>
-          <p className="text-sm mb-2" style={{ color: "var(--text-muted)" }}>Workflow library coming soon</p>
-          <p className="text-xs" style={{ color: "var(--text-muted)" }}>Pre-built workflows for common business processes</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {templates.map((t) => (
+            <div key={t.id} className="rounded-lg p-5" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
+              <div className="flex items-start justify-between mb-2">
+                <h3 className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{t.name}</h3>
+                <button onClick={() => handleUseTemplate(t)} className="text-[11px] px-2 py-0.5 rounded shrink-0" style={{ background: "var(--text-primary)", color: "var(--bg-primary)" }}>
+                  Use
+                </button>
+              </div>
+              <p className="text-xs mb-3 leading-relaxed" style={{ color: "var(--text-secondary)" }}>{t.description}</p>
+              <div className="flex gap-1 flex-wrap">
+                {t.tags.map((tag) => (
+                  <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: "var(--bg-hover)", color: "var(--text-muted)" }}>{tag}</span>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>

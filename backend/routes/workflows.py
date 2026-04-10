@@ -11,6 +11,12 @@ logger = structlog.get_logger()
 router = APIRouter(prefix="/api/workflows", tags=["workflows"])
 
 
+@router.get("/library")
+async def get_workflow_library():
+    from backend.templates.workflow_library import WORKFLOW_TEMPLATES
+    return WORKFLOW_TEMPLATES
+
+
 @router.get("")
 async def list_workflows():
     try:

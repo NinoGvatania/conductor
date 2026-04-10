@@ -163,7 +163,23 @@ export default function NewAgentPage() {
               )}
               {kb.type === "file" && (
                 <div className="rounded-md p-4 text-center" style={{ border: "1px dashed var(--border)" }}>
-                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>File upload coming soon</p>
+                  {kb.content ? (
+                    <p className="text-xs" style={{ color: "var(--text-primary)" }}>{kb.content}</p>
+                  ) : (
+                    <>
+                    <input type="file" onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      try {
+                        const result = (await api.uploadFile(file)) as { filename: string; url: string | null; text_content?: string };
+                        const k = [...form.knowledge_bases];
+                        k[i] = { ...k[i], content: result.url || result.text_content || result.filename };
+                        update("knowledge_bases", k);
+                      } catch { alert("Upload failed"); }
+                    }} className="text-xs" style={{ color: "var(--text-muted)" }} />
+                    <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>Max 10MB</p>
+                    </>
+                  )}
                 </div>
               )}
             </div>

@@ -1,11 +1,17 @@
+import json
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+import structlog
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel, Field
 
+from backend.core.providers.anthropic import AnthropicProvider
+from backend.core.providers.base import LLMRequest
+from backend.core.providers.model_router import ModelRouter
 from backend.database import get_supabase_client
 
+logger = structlog.get_logger()
 router = APIRouter(prefix="/api/tools", tags=["tools"])
 
 
@@ -30,6 +36,69 @@ class ToolUpdate(BaseModel):
     parameters: dict[str, Any] | None = None
     body_template: dict[str, Any] | None = None
     is_public: bool | None = None
+
+
+class ToolWizardRequest(BaseModel):
+    api_docs: str  # paste API documentation or URL
+    description: str = ""  # optional hint about what the tool should do
+
+
+WIZARD_PROMPT = """You are an API tool configuration generator. Given API documentation,
+generate a JSON array of tool configurations. Each tool represents one API method/endpoint.
+
+Output ONLY valid JSON array. Each tool object:
+{
+  "name": "snake_case_name",
+  "description": "Clear description of what this does and when to use it",
+  "url": "https://api.example.com/endpoint",
+  "method": "GET|POST|PUT|DELETE",
+  "headers": {"Authorization": "Bearer {api_key}", "Content-Type": "application/json"},
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "param_name": {"type": "string", "description": "what this param does"}
+    },
+    "required": ["param_name"]
+  }
+}
+
+Extract ALL available endpoints/methods from the docs. Be thorough.
+Use {api_key} or {token} placeholders in headers for auth values."""
+
+
+@router.post("/wizard")
+async def tool_wizard(request: ToolWizardRequest):
+    """AI parses API documentation and generates tool configs."""
+    provider = AnthropicProvider()
+    model_router = ModelRouter()
+
+    llm_request = LLMRequest(
+        model=model_router.resolve("balanced"),
+        system_prompt=WIZARD_PROMPT,
+        messages=[{"role": "user", "content": f"Generate tool configs from this API documentation:\n\n{request.api_docs}\n\n{f'Focus on: {request.description}' if request.description else ''}"}],
+        temperature=0.0,
+        max_tokens=4096,
+    )
+
+    try:
+        response = await provider.complete(llm_request)
+        content = response.content.strip()
+
+        # Extract JSON array
+        start = content.find("[")
+        end = content.rfind("]") + 1
+        if start >= 0 and end > start:
+            content = content[start:end]
+
+        tools = json.loads(content)
+        if not isinstance(tools, list):
+            tools = [tools]
+
+        return {"tools": tools, "count": len(tools)}
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=422, detail=f"Failed to parse AI response: {e}") from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("")
