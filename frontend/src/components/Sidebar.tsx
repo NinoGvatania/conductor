@@ -56,18 +56,18 @@ export default function Sidebar() {
 
   return (
     <aside className="w-56 flex flex-col fixed h-[calc(100vh-48px)] top-12" style={{ background: "var(--bg-secondary)", borderRight: "1px solid var(--border)" }}>
-      {/* Navigation */}
-      <nav className="px-3 pt-3 pb-1 flex flex-col gap-0.5">
+
+      {/* Block 1: Navigation */}
+      <div className="p-2">
         {navItems.map((item) => {
           const active = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
           return (
             <Link
               key={item.href}
               href={item.href}
-              className="px-3 py-1.5 rounded-md text-[13px] transition-colors"
+              className="block px-3 py-[6px] rounded-md text-[13px] transition-colors"
               style={{
-                color: active ? "var(--text-primary)" : "var(--text-secondary)",
-                background: active ? "rgba(255,255,255,0.06)" : "transparent",
+                color: active ? "#fff" : "var(--text-secondary)",
                 fontWeight: active ? 500 : 400,
               }}
             >
@@ -75,29 +75,29 @@ export default function Sidebar() {
             </Link>
           );
         })}
-      </nav>
+      </div>
 
-      {/* Divider + New Session */}
-      <div className="px-3 pt-3 pb-1" style={{ borderTop: "1px solid var(--border)", marginTop: 8 }}>
+      {/* Block 2: New Session */}
+      <div className="mx-2 py-2" style={{ borderTop: "1px solid var(--border)" }}>
         <Link
           href="/chat"
-          className="flex items-center gap-2 px-3 py-1.5 rounded-md text-[13px] transition-colors w-full"
+          className="flex items-center gap-2 px-3 py-[6px] rounded-md text-[13px]"
           style={{ color: "var(--text-secondary)" }}
         >
-          <span style={{ fontSize: 13, opacity: 0.6 }}>+</span>
-          <span>New session</span>
+          <span className="text-[11px]">+</span>
+          New session
         </Link>
       </div>
 
-      {/* Chat History */}
-      <div className="flex-1 overflow-y-auto px-3 pb-3">
+      {/* Block 3: Chat History */}
+      <div className="flex-1 overflow-y-auto" style={{ borderTop: "1px solid var(--border)" }}>
         {groupOrder.map((group) => {
           const items = grouped[group];
           if (!items || items.length === 0) return null;
           return (
-            <div key={group}>
-              <div className="pt-3 pb-1">
-                <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>{group}</span>
+            <div key={group} className="px-2">
+              <div className="px-3 pt-3 pb-1">
+                <span className="text-[10px] uppercase tracking-wider" style={{ color: "#555" }}>{group}</span>
               </div>
               {items.map((c) => {
                 const isActive = isOnChat && activeConvId === c.id;
@@ -106,10 +106,9 @@ export default function Sidebar() {
                   <Link
                     key={c.id}
                     href={`/chat?id=${c.id}`}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-md text-[12px] mb-px transition-colors"
+                    className="flex items-center gap-2 px-3 py-[6px] rounded-md text-[12px] transition-colors"
                     style={{
-                      color: isActive ? "var(--text-primary)" : "var(--text-muted)",
-                      background: isActive ? "rgba(255,255,255,0.06)" : "transparent",
+                      color: isActive ? "#fff" : "#777",
                       fontWeight: isActive ? 500 : 400,
                     }}
                   >
@@ -121,7 +120,11 @@ export default function Sidebar() {
             </div>
           );
         })}
+        {conversations.length === 0 && (
+          <p className="text-[11px] px-5 py-6 text-center" style={{ color: "#444" }}>No conversations yet</p>
+        )}
       </div>
+
     </aside>
   );
 }
