@@ -46,7 +46,8 @@ async def _fetch_from_provider(provider: str, api_key: str) -> list[dict[str, st
             models = []
             for m in data.get("data", []):
                 model_id = m.get("id", "")
-                models.append({"id": model_id, "name": _pretty_name(model_id), "provider": "anthropic"})
+                display = m.get("display_name") or _pretty_name(model_id)
+                models.append({"id": model_id, "name": display, "provider": "anthropic"})
             return sorted(models, key=lambda x: x["name"])
 
         elif provider == "openai":
@@ -61,7 +62,8 @@ async def _fetch_from_provider(provider: str, api_key: str) -> list[dict[str, st
                 model_id = m.get("id", "")
                 # Filter to chat models only
                 if any(k in model_id for k in ["gpt-4", "gpt-3.5", "o1", "o3", "chatgpt"]):
-                    models.append({"id": model_id, "name": _pretty_name(model_id), "provider": "openai"})
+                    display = m.get("name") or m.get("display_name") or _pretty_name(model_id)
+                    models.append({"id": model_id, "name": display, "provider": "openai"})
             return sorted(models, key=lambda x: x["name"])
 
         elif provider == "gemini":
