@@ -9,7 +9,6 @@ interface Conversation {
   id: string;
   title: string;
   initiated_by: string;
-  agent_name: string | null;
   updated_at: string;
   created_at: string;
 }
@@ -56,19 +55,9 @@ export default function Sidebar() {
   const isOnChat = pathname === "/chat";
 
   return (
-    <aside className="w-56 flex flex-col fixed h-[calc(100vh-48px)] top-12 overflow-hidden" style={{ background: "var(--bg-secondary)", borderRight: "1px solid var(--border)" }}>
-      {/* New Session button */}
-      <Link
-        href="/chat"
-        className="flex items-center gap-2 mx-3 mt-3 mb-1 px-3 py-2 rounded-lg text-[13px] transition-colors"
-        style={{ color: "var(--text-secondary)", border: "1px solid var(--border)" }}
-      >
-        <span style={{ fontSize: 14 }}>+</span>
-        <span>New session</span>
-      </Link>
-
+    <aside className="w-56 flex flex-col fixed h-[calc(100vh-48px)] top-12" style={{ background: "var(--bg-secondary)", borderRight: "1px solid var(--border)" }}>
       {/* Navigation */}
-      <nav className="py-2 px-2 flex flex-col gap-px">
+      <nav className="px-3 pt-3 pb-1 flex flex-col gap-0.5">
         {navItems.map((item) => {
           const active = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
           return (
@@ -88,15 +77,27 @@ export default function Sidebar() {
         })}
       </nav>
 
+      {/* Divider + New Session */}
+      <div className="px-3 pt-3 pb-1" style={{ borderTop: "1px solid var(--border)", marginTop: 8 }}>
+        <Link
+          href="/chat"
+          className="flex items-center gap-2 px-3 py-1.5 rounded-md text-[13px] transition-colors w-full"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          <span style={{ fontSize: 13, opacity: 0.6 }}>+</span>
+          <span>New session</span>
+        </Link>
+      </div>
+
       {/* Chat History */}
-      <div className="flex-1 overflow-y-auto px-2 pb-3">
+      <div className="flex-1 overflow-y-auto px-3 pb-3">
         {groupOrder.map((group) => {
           const items = grouped[group];
           if (!items || items.length === 0) return null;
           return (
             <div key={group}>
-              <div className="px-3 pt-3 pb-1">
-                <span className="text-[10px] font-medium" style={{ color: "var(--text-muted)" }}>{group}</span>
+              <div className="pt-3 pb-1">
+                <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>{group}</span>
               </div>
               {items.map((c) => {
                 const isActive = isOnChat && activeConvId === c.id;
@@ -105,7 +106,7 @@ export default function Sidebar() {
                   <Link
                     key={c.id}
                     href={`/chat?id=${c.id}`}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[12px] mb-px transition-colors"
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-md text-[12px] mb-px transition-colors"
                     style={{
                       color: isActive ? "var(--text-primary)" : "var(--text-muted)",
                       background: isActive ? "var(--bg-hover)" : "transparent",
@@ -120,9 +121,6 @@ export default function Sidebar() {
             </div>
           );
         })}
-        {conversations.length === 0 && (
-          <p className="text-[11px] px-3 py-4 text-center" style={{ color: "var(--text-muted)" }}>No conversations yet</p>
-        )}
       </div>
     </aside>
   );
