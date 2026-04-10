@@ -137,13 +137,43 @@ async def _fetch_from_provider(provider: str, api_key: str) -> list[dict[str, st
     return []
 
 
+FRIENDLY_NAMES: dict[str, str] = {
+    # Anthropic
+    "claude-haiku-4-5-20251001": "Claude 4.5 Haiku",
+    "claude-sonnet-4-5-20250929": "Claude 4.5 Sonnet",
+    "claude-sonnet-4-20250514": "Claude Sonnet 4",
+    "claude-opus-4-1-20250805": "Claude Opus 4.1",
+    "claude-opus-4-5-20251101": "Claude 4.5 Opus",
+    "claude-opus-4-6": "Claude 4.6 Opus",
+    "claude-sonnet-4-6": "Claude 4.6 Sonnet",
+    # OpenAI
+    "gpt-4o": "GPT-4o",
+    "gpt-4o-mini": "GPT-4o Mini",
+    "gpt-4-turbo": "GPT-4 Turbo",
+    "gpt-3.5-turbo": "GPT-3.5 Turbo",
+    "o1": "o1",
+    "o1-mini": "o1 Mini",
+    "o3": "o3",
+    "o3-mini": "o3 Mini",
+    # Mistral
+    "mistral-small-latest": "Mistral Small",
+    "mistral-large-latest": "Mistral Large",
+    "mistral-medium-latest": "Mistral Medium",
+}
+
+
 def _pretty_name(model_id: str) -> str:
     """Convert model ID to a readable name."""
-    name = model_id
-    name = name.replace("-", " ").replace("_", " ")
-    # Capitalize parts
-    parts = name.split()
-    return " ".join(p.capitalize() if len(p) > 2 else p.upper() for p in parts)
+    if model_id in FRIENDLY_NAMES:
+        return FRIENDLY_NAMES[model_id]
+    # Auto-format: capitalize words, keep version numbers
+    parts = model_id.replace("-", " ").replace("_", " ").split()
+    result = []
+    for p in parts:
+        if p.isdigit() and len(p) == 8:
+            continue  # Skip date stamps like 20250514
+        result.append(p.capitalize() if len(p) > 2 else p.upper())
+    return " ".join(result) if result else model_id
 
 
 def clear_models_cache(provider: str | None = None):
