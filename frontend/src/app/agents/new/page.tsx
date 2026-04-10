@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import AgentChatHelper from "@/components/AgentChatHelper";
 
 interface CatalogProvider { id: string; name: string; models: Array<{ id: string; name: string; tier: string }>; }
 
@@ -57,7 +58,8 @@ export default function NewAgentPage() {
   const s = { background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-primary)" };
 
   return (
-    <div className="max-w-2xl">
+    <div className="flex gap-6">
+    <div className="flex-1 max-w-2xl">
       <h1 className="text-2xl font-semibold tracking-tight mb-6" style={{ color: "var(--text-primary)" }}>Create Agent</h1>
 
       <div className="space-y-5">
@@ -199,6 +201,11 @@ export default function NewAgentPage() {
           <button onClick={() => router.push("/agents")} className="px-4 py-2 rounded-md text-sm" style={{ color: "var(--text-muted)", border: "1px solid var(--border)" }}>Cancel</button>
         </div>
       </div>
+    </div>
+    {/* Chat Helper */}
+    <div className="w-80 h-[calc(100vh-120px)] sticky top-20 hidden lg:block">
+      <AgentChatHelper />
+    </div>
     </div>
   );
 }
