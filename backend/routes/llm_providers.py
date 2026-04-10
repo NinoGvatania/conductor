@@ -129,17 +129,24 @@ async def connect_provider(data: ProviderConnect):
     if data.project_id:
         row["project_id"] = data.project_id
 
+    from backend.core.providers.key_store import clear_cache
+
     if existing.data:
         client.table("llm_providers").update(row).eq("id", existing.data[0]["id"]).execute()
+        clear_cache()
         return {"status": "updated", "provider": data.provider}
     else:
         row["id"] = str(uuid.uuid4())
         client.table("llm_providers").insert(row).execute()
+        clear_cache()
         return {"status": "connected", "provider": data.provider}
 
 
 @router.post("/{provider_id}/disconnect")
 async def disconnect_provider(provider_id: str):
+    from backend.core.providers.key_store import clear_cache
+
     client = get_supabase_client()
     client.table("llm_providers").update({"is_active": False}).eq("id", provider_id).execute()
+    clear_cache()
     return {"status": "disconnected"}

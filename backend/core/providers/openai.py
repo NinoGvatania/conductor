@@ -4,9 +4,9 @@ from typing import Any
 
 import structlog
 
-from backend.config import settings
 from backend.core.contracts.errors import RetriableError
 from backend.core.providers.base import LLMProvider, LLMRequest, LLMResponse
+from backend.core.providers.key_store import get_api_key
 
 logger = structlog.get_logger()
 
@@ -23,7 +23,10 @@ class OpenAIProvider(LLMProvider):
             import openai
         except ImportError:
             raise ImportError("Install openai: pip install openai")
-        self.client = openai.AsyncOpenAI(api_key=api_key or settings.OPENAI_API_KEY)
+        key = api_key or get_api_key("openai")
+        if not key:
+            raise ValueError("OpenAI API key not configured. Go to Settings → OpenAI → Connect.")
+        self.client = openai.AsyncOpenAI(api_key=key)
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
         import openai

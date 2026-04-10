@@ -6,9 +6,9 @@ from typing import Any
 import anthropic
 import structlog
 
-from backend.config import settings
 from backend.core.contracts.errors import RetriableError
 from backend.core.providers.base import LLMProvider, LLMRequest, LLMResponse
+from backend.core.providers.key_store import get_api_key
 
 logger = structlog.get_logger()
 
@@ -21,9 +21,10 @@ MODEL_MAP: dict[str, str] = {
 
 class AnthropicProvider(LLMProvider):
     def __init__(self, api_key: str | None = None) -> None:
-        self.client = anthropic.AsyncAnthropic(
-            api_key=api_key or settings.ANTHROPIC_API_KEY
-        )
+        key = api_key or get_api_key("anthropic")
+        if not key:
+            raise ValueError("Anthropic API key not configured. Go to Settings → Anthropic → Connect.")
+        self.client = anthropic.AsyncAnthropic(api_key=key)
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
         max_retries = 3
