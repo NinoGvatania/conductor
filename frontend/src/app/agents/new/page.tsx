@@ -161,46 +161,67 @@ export default function NewAgentPage() {
           <textarea value={form.clarification_rules} onChange={(e) => update("clarification_rules", e.target.value)} rows={3} placeholder="Ask when customer budget is unclear. Ask when request conflicts with policy. Ask before making any write action." className="w-full px-3 py-2 rounded-md text-sm" style={s} />
         </div>
 
-        {/* Tools */}
+        {/* Integrations */}
         <div>
           <div className="flex justify-between items-center mb-2">
-            <label className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>Tools (API Integrations)</label>
-            <div className="flex gap-2">
-              <button onClick={() => setShowToolPicker(true)} className="text-xs px-2 py-0.5 rounded" style={{ color: "#0cce6b", border: "1px solid var(--border)" }}>From Library</button>
-              <button onClick={() => update("tools", [...form.tools, { name: "", description: "", url: "", method: "POST", headers: "", parameters: "" }])} className="text-xs" style={{ color: "var(--accent-light, #3291ff)" }}>+ Manual</button>
-            </div>
+            <label className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>Integrations</label>
+            <button
+              onClick={() => setShowToolPicker(true)}
+              className="text-xs px-2 py-1 rounded"
+              style={{ color: "#0cce6b", border: "1px solid var(--border)" }}
+            >
+              + Add from library
+            </button>
           </div>
           {showToolPicker && (
             <ToolPicker
               selectedNames={form.tools.map((t) => t.name)}
-              onSelect={(picked) => {
-                const newTools = picked.map((t) => ({
-                  name: t.name, description: t.description, url: t.url,
-                  method: t.method, headers: "", parameters: "",
-                }));
-                update("tools", [...form.tools, ...newTools]);
+              onConfirm={(picked) => {
+                update(
+                  "tools",
+                  picked.map((t) => ({
+                    name: t.name,
+                    description: t.description,
+                    url: t.url,
+                    method: t.method,
+                    headers: "",
+                    parameters: "",
+                  })),
+                );
               }}
               onClose={() => setShowToolPicker(false)}
             />
           )}
-          {form.tools.map((tool, i) => (
-            <div key={i} className="rounded-lg p-3 mb-2" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
-              <div className="flex justify-between mb-2">
-                <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>Tool #{i + 1}</span>
-                <button onClick={() => update("tools", form.tools.filter((_, j) => j !== i))} className="text-[10px]" style={{ color: "#ee0000" }}>Remove</button>
-              </div>
-              <div className="grid grid-cols-2 gap-2 mb-2">
-                <input value={tool.name} onChange={(e) => { const t = [...form.tools]; t[i] = { ...t[i], name: e.target.value }; update("tools", t); }} placeholder="send_telegram" className="px-2 py-1.5 rounded text-xs" style={s} />
-                <div className="flex gap-1">
-                  <select value={tool.method} onChange={(e) => { const t = [...form.tools]; t[i] = { ...t[i], method: e.target.value }; update("tools", t); }} className="px-2 py-1.5 rounded text-xs w-20" style={s}>
-                    <option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option>
-                  </select>
-                  <input value={tool.url} onChange={(e) => { const t = [...form.tools]; t[i] = { ...t[i], url: e.target.value }; update("tools", t); }} placeholder="https://api.example.com/..." className="flex-1 px-2 py-1.5 rounded text-xs" style={s} />
+          {form.tools.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {form.tools.map((tool, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs"
+                  style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}
+                >
+                  <span style={{ color: "var(--text-primary)" }}>{tool.name}</span>
+                  <button
+                    onClick={() => update("tools", form.tools.filter((_, j) => j !== i))}
+                    className="text-[11px] leading-none"
+                    style={{ color: "var(--text-muted)" }}
+                    title="Remove"
+                  >
+                    ×
+                  </button>
                 </div>
-              </div>
-              <input value={tool.description} onChange={(e) => { const t = [...form.tools]; t[i] = { ...t[i], description: e.target.value }; update("tools", t); }} placeholder="Description for AI" className="w-full px-2 py-1.5 rounded text-xs mb-1" style={s} />
+              ))}
             </div>
-          ))}
+          ) : (
+            <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+              Нет подключённых интеграций. Нажми{" "}
+              <span style={{ color: "#0cce6b" }}>+ Add from library</span>, чтобы выбрать из своей
+              библиотеки. Новые интеграции создаются во{" "}
+              <a href="/tools" target="_blank" style={{ color: "var(--accent-light, #3291ff)", textDecoration: "underline" }}>
+                вкладке Integrations
+              </a>.
+            </p>
+          )}
         </div>
 
         {/* Knowledge Bases */}

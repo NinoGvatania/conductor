@@ -217,32 +217,60 @@ export default function EditAgentPage() {
           <textarea value={form.clarification_rules} onChange={(e) => update("clarification_rules", e.target.value)} rows={3} placeholder="Ask when budget is unclear..." className="w-full px-3 py-2 rounded-md text-sm" style={inputStyle} />
         </div>
 
-        {/* Tools */}
+        {/* Integrations */}
         <div>
           <div className="flex justify-between items-center mb-2">
-            <label className="text-xs" style={{ color: "var(--text-muted)" }}>Tools</label>
-            <div className="flex gap-2">
-              <button onClick={() => setShowToolPicker(true)} className="text-xs px-2 py-0.5 rounded" style={{ color: "#0cce6b", border: "1px solid var(--border)" }}>From Library</button>
-              <button onClick={() => update("tools", [...form.tools, { name: "", description: "" }])} className="text-xs" style={{ color: "var(--accent-light, #3291ff)" }}>+ Manual</button>
-            </div>
+            <label className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>Integrations</label>
+            <button
+              onClick={() => setShowToolPicker(true)}
+              className="text-xs px-2 py-1 rounded"
+              style={{ color: "#0cce6b", border: "1px solid var(--border)" }}
+            >
+              + Add from library
+            </button>
           </div>
           {showToolPicker && (
             <ToolPicker
               selectedNames={form.tools.map((t) => t.name)}
-              onSelect={(picked) => {
-                const newTools = picked.map((t) => ({ name: t.name, description: t.description }));
-                update("tools", [...form.tools, ...newTools]);
+              onConfirm={(picked) => {
+                update(
+                  "tools",
+                  picked.map((t) => ({ name: t.name, description: t.description })),
+                );
               }}
               onClose={() => setShowToolPicker(false)}
             />
           )}
-          {form.tools.map((t, i) => (
-            <div key={i} className="flex gap-2 mb-2">
-              <input value={t.name} onChange={(e) => { const arr = [...form.tools]; arr[i] = { ...arr[i], name: e.target.value }; update("tools", arr); }} placeholder="Name" className="flex-1 px-3 py-2 rounded-md text-sm" style={inputStyle} />
-              <input value={t.description} onChange={(e) => { const arr = [...form.tools]; arr[i] = { ...arr[i], description: e.target.value }; update("tools", arr); }} placeholder="Description" className="flex-[2] px-3 py-2 rounded-md text-sm" style={inputStyle} />
-              <button onClick={() => update("tools", form.tools.filter((_, j) => j !== i))} className="text-xs px-2" style={{ color: "var(--error)" }}>✕</button>
+          {form.tools.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {form.tools.map((t, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs"
+                  style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}
+                >
+                  <span style={{ color: "var(--text-primary)" }}>{t.name}</span>
+                  <button
+                    onClick={() => update("tools", form.tools.filter((_, j) => j !== i))}
+                    className="text-[11px] leading-none"
+                    style={{ color: "var(--text-muted)" }}
+                    title="Remove"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
             </div>
-          ))}
+          ) : (
+            <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+              Нет подключённых интеграций. Нажми{" "}
+              <span style={{ color: "#0cce6b" }}>+ Add from library</span>, чтобы выбрать из своей
+              библиотеки. Новые интеграции создаются во{" "}
+              <a href="/tools" target="_blank" style={{ color: "var(--accent-light, #3291ff)", textDecoration: "underline" }}>
+                вкладке Integrations
+              </a>.
+            </p>
+          )}
         </div>
 
         {/* Knowledge Bases */}
