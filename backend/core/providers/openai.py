@@ -45,10 +45,15 @@ class OpenAIProvider(LLMProvider):
             messages.append({"role": "system", "content": request.system_prompt})
         messages.extend(request.messages)
 
+        # OpenAI chat models cap output at ~16k tokens (gpt-4o: 16384). Passing
+        # higher values raises an API error. Silently clip so the caller's
+        # 32k default doesn't break things if the user picks a gpt-* model.
+        effective_max_tokens = min(request.max_tokens, 16384)
+
         kwargs: dict[str, Any] = {
             "model": request.model,
             "messages": messages,
-            "max_tokens": request.max_tokens,
+            "max_tokens": effective_max_tokens,
             "temperature": request.temperature,
         }
 

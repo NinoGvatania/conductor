@@ -69,14 +69,21 @@ class AnthropicProvider(LLMProvider):
             kwargs["tools"] = request.tools
 
         client = await self._get_client()
-        response = await client.messages.create(**kwargs)
+
+        # Use streaming — the Anthropic SDK requires it for requests whose
+        # worst-case runtime can exceed 10 minutes (which is anything with
+        # a large max_tokens like 32000). `.stream()` collects chunks and
+        # gives us a final assembled message equivalent to non-streaming.
+        async with client.messages.stream(**kwargs) as stream:
+            final_message = await stream.get_final_message()
+
         latency_ms = (time.monotonic() - start) * 1000
 
         content = ""
         tool_calls: list[dict[str, Any]] = []
         structured_output: dict[str, Any] | None = None
 
-        for block in response.content:
+        for block in final_message.content:
             if block.type == "text":
                 content += block.text
             elif block.type == "tool_use":
@@ -94,9 +101,9 @@ class AnthropicProvider(LLMProvider):
             content=content,
             tool_calls=tool_calls,
             structured_output=structured_output,
-            input_tokens=response.usage.input_tokens,
-            output_tokens=response.usage.output_tokens,
-            model=response.model,
+            input_tokens=final_message.usage.input_tokens,
+            output_tokens=final_message.usage.output_tokens,
+            model=final_message.model,
             latency_ms=latency_ms,
         )
 
