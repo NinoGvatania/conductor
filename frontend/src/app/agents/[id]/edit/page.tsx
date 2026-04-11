@@ -106,20 +106,48 @@ export default function EditAgentPage() {
 
         <div className="grid grid-cols-3 gap-3">
           <div>
-            <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Tier</label>
+            <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Model tier</label>
             <select value={form.model_tier} onChange={(e) => update("model_tier", e.target.value)} className="w-full px-3 py-2 rounded-md text-sm" style={inputStyle}>
-              <option value="fast">Fast</option>
-              <option value="balanced">Balanced</option>
-              <option value="powerful">Powerful</option>
+              <option value="fast">Fast — Haiku 4.5</option>
+              <option value="balanced">Balanced — Sonnet 4.6</option>
+              <option value="powerful">Powerful — Opus 4.6</option>
             </select>
+            <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+              Fast — простые Q&A, Balanced — большинство задач, Powerful — сложный анализ.
+            </p>
           </div>
           <div>
             <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Temperature</label>
             <input type="number" value={form.temperature} onChange={(e) => update("temperature", parseFloat(e.target.value))} min={0} max={2} step={0.1} className="w-full px-3 py-2 rounded-md text-sm" style={inputStyle} />
+            <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+              0 — детерминированно, 1 — креативно.
+            </p>
           </div>
           <div>
-            <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Max Tokens</label>
-            <input type="number" value={form.max_tokens} onChange={(e) => update("max_tokens", parseInt(e.target.value))} className="w-full px-3 py-2 rounded-md text-sm" style={inputStyle} />
+            <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Max tokens</label>
+            <div className="flex gap-1 items-stretch">
+              <input
+                type="number"
+                value={form.max_tokens}
+                onChange={(e) => update("max_tokens", parseInt(e.target.value) || 0)}
+                className="flex-1 min-w-0 px-3 py-2 rounded-md text-sm"
+                style={inputStyle}
+              />
+              {form.max_tokens < 8192 && (
+                <button
+                  type="button"
+                  onClick={() => update("max_tokens", 32000)}
+                  title="Reset to 32000 (recommended)"
+                  className="px-2 rounded-md text-[10px] shrink-0"
+                  style={{ color: "#f1c40f", border: "1px solid #555" }}
+                >
+                  ↑ 32k
+                </button>
+              )}
+            </div>
+            <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+              Длина ответа агента. 32000 ≈ 24k слов. Ниже — дешевле, но длинные ответы обрежутся.
+            </p>
           </div>
         </div>
 
