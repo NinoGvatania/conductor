@@ -145,12 +145,12 @@ export default function BuilderChat({
 
   return (
     <div
-      className="flex flex-col h-full rounded-lg overflow-hidden"
-      style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
+      className="flex flex-col h-full overflow-hidden"
+      style={{ background: "var(--bg-secondary)" }}
     >
       {title && (
         <div
-          className="px-4 py-2.5 text-xs font-medium"
+          className="px-4 py-3 text-[11px] font-medium uppercase tracking-wider"
           style={{ color: "var(--text-muted)", borderBottom: "1px solid var(--border)" }}
         >
           {title}
@@ -169,7 +169,7 @@ export default function BuilderChat({
             <div
               className="max-w-[90%] px-3 py-2 rounded-xl text-xs leading-relaxed whitespace-pre-wrap"
               style={{
-                background: m.role === "user" ? "#6366f1" : "var(--bg-secondary)",
+                background: m.role === "user" ? "#6366f1" : "var(--bg-card)",
                 color: m.role === "user" ? "#fff" : "var(--text-secondary)",
                 border: m.role === "user" ? "none" : "1px solid var(--border)",
               }}
@@ -182,7 +182,11 @@ export default function BuilderChat({
           <div className="flex justify-start">
             <div
               className="px-3 py-2 rounded-xl text-xs"
-              style={{ background: "var(--bg-secondary)", color: "var(--text-muted)" }}
+              style={{
+                background: "var(--bg-card)",
+                color: "var(--text-muted)",
+                border: "1px solid var(--border)",
+              }}
             >
               Thinking...
             </div>
@@ -198,7 +202,7 @@ export default function BuilderChat({
             onChange={(e) => setModel(e.target.value)}
             className="w-full px-2 py-1 rounded text-[11px]"
             style={{
-              background: "var(--bg-secondary)",
+              background: "var(--bg-card)",
               border: "1px solid var(--border)",
               color: "var(--text-muted)",
             }}
@@ -236,7 +240,7 @@ export default function BuilderChat({
             rows={1}
             className="flex-1 px-3 py-2 rounded text-xs resize-none leading-relaxed"
             style={{
-              background: "var(--bg-secondary)",
+              background: "var(--bg-card)",
               border: "1px solid var(--border)",
               color: "var(--text-primary)",
               minHeight: "32px",

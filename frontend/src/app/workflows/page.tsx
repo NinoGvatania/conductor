@@ -127,7 +127,7 @@ export default function WorkflowsPage() {
       </div>
       <aside
         className="w-80 shrink-0 sticky top-12 hidden lg:block -my-6 self-start h-[calc(100vh-48px)]"
-        style={{ borderLeft: "1px solid var(--border)", background: "var(--bg-primary)" }}
+        style={{ borderLeft: "1px solid var(--border)" }}
       >
         <BuilderChat
           contextType="workflow_builder"
