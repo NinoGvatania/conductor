@@ -117,7 +117,8 @@ export default function EditAgentPage() {
 
   return (
     <div className="flex gap-6 -mr-6">
-      <div className="flex-1 min-w-0 max-w-2xl">
+      <div className="flex-1 min-w-0">
+      <div className="max-w-2xl">
       <Link href={`/agents/${agentId}`} className="text-xs mb-2 inline-block" style={{ color: "var(--text-muted)" }}>← Back</Link>
       <h1 className="text-2xl font-semibold tracking-tight mb-6" style={{ color: "var(--text-primary)" }}>Edit Agent</h1>
 
@@ -304,6 +305,7 @@ export default function EditAgentPage() {
           </button>
           <button onClick={() => router.push(`/agents/${agentId}`)} className="px-4 py-2 rounded-md text-sm" style={{ color: "var(--text-muted)", border: "1px solid var(--border)" }}>Cancel</button>
         </div>
+      </div>
       </div>
       </div>
       <aside

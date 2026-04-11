@@ -540,11 +540,18 @@ async def list_builder_conversations(
     query = select(Conversation).where(Conversation.context_type != "orchestrator")
     if context_type:
         query = query.where(Conversation.context_type == context_type)
+    # Explicit per-entity filter: only the chats that belong to this exact
+    # agent/workflow. If no context_id is passed, we want conversations that
+    # aren't bound to a specific entity at all (the "new agent" / list-page
+    # chats) — NOT every chat of the same type mixed together. Otherwise the
+    # history leaks between agents.
     if context_id:
         try:
             query = query.where(Conversation.context_id == uuid.UUID(context_id))
         except ValueError:
             pass
+    else:
+        query = query.where(Conversation.context_id.is_(None))
     query = query.order_by(Conversation.updated_at.desc())
     result = await db.execute(query)
     return [

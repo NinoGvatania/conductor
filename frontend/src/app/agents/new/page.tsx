@@ -88,7 +88,8 @@ export default function NewAgentPage() {
 
   return (
     <div className="flex gap-6 -mr-6">
-    <div className="flex-1 min-w-0 max-w-2xl">
+    <div className="flex-1 min-w-0">
+    <div className="max-w-2xl">
       <h1 className="text-2xl font-semibold tracking-tight mb-6" style={{ color: "var(--text-primary)" }}>Create Agent</h1>
 
       <div className="space-y-5">
@@ -320,6 +321,7 @@ export default function NewAgentPage() {
           <button onClick={() => router.push("/agents")} className="px-4 py-2 rounded-md text-sm" style={{ color: "var(--text-muted)", border: "1px solid var(--border)" }}>Cancel</button>
         </div>
       </div>
+    </div>
     </div>
     {/* Chat Helper — pinned to viewport right edge */}
     <aside

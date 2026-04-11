@@ -243,11 +243,11 @@ function EditorContent() {
           />
         </div>
         {showChat && (
-          <div className="w-96 flex-shrink-0" style={{ borderLeft: "1px solid var(--border)" }}>
+          <div className="w-80 flex-shrink-0" style={{ borderLeft: "1px solid var(--border)" }}>
             <BuilderChat
               contextType="workflow_builder"
               contextId={workflowId || undefined}
-              title="Design with AI"
+              title="Design Workflow with AI"
               placeholder="Describe the workflow or change..."
               onEntityCreated={(entity) => {
                 if (entity.type !== "workflow") return;
