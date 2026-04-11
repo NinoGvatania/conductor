@@ -44,8 +44,10 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [customAgents, setCustomAgents] = useState<Array<{ name: string; description: string }>>([]);
 
-  // Modal for edge description
+  // Modal for edge description — either creating a new edge (pendingConnection)
+  // or editing the description of an existing one (editingEdge).
   const [pendingConnection, setPendingConnection] = useState<Connection | null>(null);
+  const [editingEdge, setEditingEdge] = useState<Edge | null>(null);
   const [edgeDescription, setEdgeDescription] = useState("");
 
   useEffect(() => {
@@ -61,6 +63,13 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
     // Open modal to ask for edge description
     setPendingConnection(params);
     setEdgeDescription("");
+  }, []);
+
+  // Click an existing edge -> open the edit modal prefilled with its description
+  const onEdgeClick = useCallback((_: unknown, edge: Edge) => {
+    setEditingEdge(edge);
+    const desc = (edge.data as Record<string, unknown> | undefined)?.description;
+    setEdgeDescription(typeof desc === "string" ? desc : "");
   }, []);
 
   function confirmConnection() {
@@ -88,6 +97,35 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
     setEdgeDescription("");
   }
 
+  function saveEditedEdge() {
+    if (!editingEdge) return;
+    setEdges((eds) =>
+      eds.map((e) =>
+        e.id === editingEdge.id
+          ? {
+              ...e,
+              label: edgeDescription || undefined,
+              data: { ...(e.data || {}), description: edgeDescription },
+            }
+          : e,
+      ),
+    );
+    setEditingEdge(null);
+    setEdgeDescription("");
+  }
+
+  function deleteEditedEdge() {
+    if (!editingEdge) return;
+    setEdges((eds) => eds.filter((e) => e.id !== editingEdge.id));
+    setEditingEdge(null);
+    setEdgeDescription("");
+  }
+
+  function cancelEditEdge() {
+    setEditingEdge(null);
+    setEdgeDescription("");
+  }
+
   function addNode(template: { nodeType: string; label: string; agentName: string | null }) {
     const id = `node_${Date.now()}`;
     const newNode: Node = {
@@ -109,7 +147,7 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
 
   return (
     <div className="flex h-full relative">
-      {/* Edge description modal */}
+      {/* Edge description modal — create */}
       {pendingConnection && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }}>
           <div className="w-full max-w-md rounded-lg p-5" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
@@ -133,6 +171,39 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
               <button onClick={confirmConnection} className="px-3 py-1.5 rounded-md text-xs font-medium" style={{ background: "var(--text-primary)", color: "var(--bg-primary)" }}>
                 Create Connection
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edge description modal — edit existing */}
+      {editingEdge && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }}>
+          <div className="w-full max-w-md rounded-lg p-5" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
+            <h3 className="text-sm font-semibold mb-2" style={{ color: "var(--text-primary)" }}>Edit connection</h3>
+            <p className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>
+              <code>{editingEdge.source}</code> → <code>{editingEdge.target}</code>. Describe why the data flows here — this context is passed to downstream agents.
+            </p>
+            <textarea
+              value={edgeDescription}
+              onChange={(e) => setEdgeDescription(e.target.value)}
+              placeholder="e.g. Classified category is used to decide which extraction schema to apply..."
+              rows={4}
+              className="w-full px-3 py-2 rounded-md text-sm mb-3"
+              style={inputStyle}
+            />
+            <div className="flex justify-between gap-2">
+              <button onClick={deleteEditedEdge} className="px-3 py-1.5 rounded-md text-xs" style={{ color: "#ee4444", border: "1px solid var(--border)" }}>
+                Delete connection
+              </button>
+              <div className="flex gap-2">
+                <button onClick={cancelEditEdge} className="px-3 py-1.5 rounded-md text-xs" style={{ color: "var(--text-muted)", border: "1px solid var(--border)" }}>
+                  Cancel
+                </button>
+                <button onClick={saveEditedEdge} className="px-3 py-1.5 rounded-md text-xs font-medium" style={{ background: "var(--text-primary)", color: "var(--bg-primary)" }}>
+                  Save
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -170,6 +241,7 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
           nodes={nodes} edges={edges}
           onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          onEdgeClick={onEdgeClick}
           onNodeClick={(_, node) => setSelectedNode(node.id)}
           onPaneClick={() => setSelectedNode(null)}
           nodeTypes={nodeTypes} fitView
