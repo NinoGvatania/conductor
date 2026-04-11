@@ -24,8 +24,17 @@ export default function AgentsPage() {
   const [tab, setTab] = useState<"my" | "library">("my");
   const [search, setSearch] = useState("");
 
+  async function refreshAgents() {
+    try {
+      const d = await api.listAgents();
+      setAgents(d as Agent[]);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
   useEffect(() => {
-    api.listAgents().then((d) => setAgents(d as Agent[])).catch((e) => console.error(e));
+    refreshAgents();
   }, []);
 
   const filtered = agents
@@ -117,7 +126,14 @@ export default function AgentsPage() {
       )}
       </div>
       <div className="w-80 h-[calc(100vh-120px)] sticky top-20 hidden lg:block">
-        <BuilderChat contextType="agent_builder" title="Design Agent with AI" placeholder="Describe the agent you need..." />
+        <BuilderChat
+          contextType="agent_builder"
+          title="Design Agent with AI"
+          placeholder="Describe the agent you need..."
+          onEntityCreated={(entity) => {
+            if (entity.type === "agent") refreshAgents();
+          }}
+        />
       </div>
     </div>
   );

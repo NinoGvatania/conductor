@@ -13,8 +13,17 @@ export default function WorkflowsPage() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [tab, setTab] = useState<"my" | "library">("my");
 
+  async function refreshWorkflows() {
+    try {
+      const w = await api.listWorkflows();
+      setWorkflows(w as Workflow[]);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
   useEffect(() => {
-    api.listWorkflows().then((w) => setWorkflows(w as Workflow[])).catch((e) => console.error(e));
+    refreshWorkflows();
     api.getWorkflowLibrary().then((t) => setTemplates(t as Template[])).catch((e) => console.error(e));
   }, []);
 
@@ -117,7 +126,14 @@ export default function WorkflowsPage() {
       )}
       </div>
       <div className="w-80 h-[calc(100vh-120px)] sticky top-20 hidden lg:block">
-        <BuilderChat contextType="workflow_builder" title="Design Workflow with AI" placeholder="Describe your process..." />
+        <BuilderChat
+          contextType="workflow_builder"
+          title="Design Workflow with AI"
+          placeholder="Describe your process..."
+          onEntityCreated={(entity) => {
+            if (entity.type === "workflow") refreshWorkflows();
+          }}
+        />
       </div>
     </div>
   );

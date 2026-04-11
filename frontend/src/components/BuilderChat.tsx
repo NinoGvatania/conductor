@@ -9,24 +9,77 @@ interface Message {
   content: string;
 }
 
+interface CreatedEntity {
+  type: "agent" | "workflow";
+  id: string;
+  name?: string;
+}
+
+interface ProviderModel {
+  id: string;
+  name: string;
+  provider: string;
+}
+
 interface BuilderChatProps {
   contextType: "agent_builder" | "workflow_builder";
   contextId?: string;
   title?: string;
   placeholder?: string;
+  onEntityCreated?: (entity: CreatedEntity) => void;
 }
 
-export default function BuilderChat({ contextType, contextId, title, placeholder }: BuilderChatProps) {
+const PROVIDERS = ["anthropic", "openai", "gemini", "mistral", "yandexgpt", "gigachat"];
+
+export default function BuilderChat({
+  contextType,
+  contextId,
+  title,
+  placeholder,
+  onEntityCreated,
+}: BuilderChatProps) {
   const [convId, setConvId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [model, setModel] = useState<string>("");
+  const [availableModels, setAvailableModels] = useState<ProviderModel[]>([]);
   const endRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Load available models from connected providers (same pattern as /chat page)
+  useEffect(() => {
+    let cancelled = false;
+    async function loadModels() {
+      const all: ProviderModel[] = [];
+      for (const p of PROVIDERS) {
+        try {
+          const models = (await api.getProviderModels(p)) as Array<{
+            id: string;
+            name: string;
+            provider?: string;
+          }>;
+          if (Array.isArray(models) && models.length > 0) {
+            all.push(...models.map((m) => ({ ...m, provider: m.provider || p })));
+          }
+        } catch {
+          // provider not connected — skip silently
+        }
+      }
+      if (cancelled) return;
+      setAvailableModels(all);
+      if (all.length > 0 && !model) setModel(all[0].id);
+    }
+    loadModels();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Auto-resize textarea up to a max height, then scroll internally
   useLayoutEffect(() => {
@@ -47,29 +100,59 @@ export default function BuilderChat({ contextType, contextId, title, placeholder
     setMessages((prev) => [...prev, { id: "temp_" + Date.now(), role: "user", content: text }]);
 
     try {
-      const result = (await api.sendBuilderMessage(text, contextType, contextId, convId || undefined)) as {
+      const result = (await api.sendBuilderMessage(
+        text,
+        contextType,
+        contextId,
+        convId || undefined,
+        model || undefined,
+      )) as {
         conversation_id: string;
         message: Message;
+        created_entities?: CreatedEntity[];
       };
       if (!convId) setConvId(result.conversation_id);
-      setMessages((prev) => [...prev.filter((m) => !m.id.startsWith("temp_")),
+      setMessages((prev) => [
+        ...prev.filter((m) => !m.id.startsWith("temp_")),
         { id: "user_" + Date.now(), role: "user", content: text },
         result.message,
       ]);
+      // Notify parent so it can refresh its list
+      if (result.created_entities && result.created_entities.length > 0 && onEntityCreated) {
+        for (const entity of result.created_entities) {
+          onEntityCreated(entity);
+        }
+      }
     } catch (e) {
       setMessages((prev) => [
         ...prev.filter((m) => !m.id.startsWith("temp_")),
-        { id: "err_" + Date.now(), role: "assistant", content: `Error: ${e instanceof Error ? e.message : "failed"}` },
+        {
+          id: "err_" + Date.now(),
+          role: "assistant",
+          content: `Error: ${e instanceof Error ? e.message : "failed"}`,
+        },
       ]);
     } finally {
       setSending(false);
     }
   }
 
+  // Group models by provider for the <optgroup>
+  const modelsByProvider = availableModels.reduce<Record<string, ProviderModel[]>>((acc, m) => {
+    (acc[m.provider] = acc[m.provider] || []).push(m);
+    return acc;
+  }, {});
+
   return (
-    <div className="flex flex-col h-full rounded-lg overflow-hidden" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
+    <div
+      className="flex flex-col h-full rounded-lg overflow-hidden"
+      style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
+    >
       {title && (
-        <div className="px-4 py-2.5 text-xs font-medium" style={{ color: "var(--text-muted)", borderBottom: "1px solid var(--border)" }}>
+        <div
+          className="px-4 py-2.5 text-xs font-medium"
+          style={{ color: "var(--text-muted)", borderBottom: "1px solid var(--border)" }}
+        >
           {title}
         </div>
       )}
@@ -77,8 +160,8 @@ export default function BuilderChat({ contextType, contextId, title, placeholder
         {messages.length === 0 && (
           <p className="text-xs text-center mt-4" style={{ color: "var(--text-muted)" }}>
             {contextType === "agent_builder"
-              ? "Describe what your agent should do. I'll suggest configuration."
-              : "Describe your process. I'll suggest a workflow structure."}
+              ? "Describe what your agent should do — I'll create it directly."
+              : "Describe your process — I'll build the workflow for you."}
           </p>
         )}
         {messages.map((m) => (
@@ -97,7 +180,10 @@ export default function BuilderChat({ contextType, contextId, title, placeholder
         ))}
         {sending && (
           <div className="flex justify-start">
-            <div className="px-3 py-2 rounded-xl text-xs" style={{ background: "var(--bg-secondary)", color: "var(--text-muted)" }}>
+            <div
+              className="px-3 py-2 rounded-xl text-xs"
+              style={{ background: "var(--bg-secondary)", color: "var(--text-muted)" }}
+            >
               Thinking...
             </div>
           </div>
@@ -105,6 +191,35 @@ export default function BuilderChat({ contextType, contextId, title, placeholder
         <div ref={endRef} />
       </div>
       <div className="p-2" style={{ borderTop: "1px solid var(--border)" }}>
+        {/* Model selector */}
+        <div className="mb-1.5">
+          <select
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            className="w-full px-2 py-1 rounded text-[11px]"
+            style={{
+              background: "var(--bg-secondary)",
+              border: "1px solid var(--border)",
+              color: "var(--text-muted)",
+            }}
+          >
+            {availableModels.length > 0 ? (
+              Object.entries(modelsByProvider).map(([provider, models]) => (
+                <optgroup key={provider} label={provider.charAt(0).toUpperCase() + provider.slice(1)}>
+                  {models.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+                </optgroup>
+              ))
+            ) : (
+              <option value="" disabled>
+                No providers connected — go to Settings
+              </option>
+            )}
+          </select>
+        </div>
         <div className="flex gap-1 items-end">
           <textarea
             ref={textareaRef}

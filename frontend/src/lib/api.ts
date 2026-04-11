@@ -62,7 +62,13 @@ export const api = {
     return request(`/api/builders/conversations${qs ? "?" + qs : ""}`);
   },
   getBuilderMessages: (convId: string) => request(`/api/builders/conversations/${convId}/messages`),
-  sendBuilderMessage: (content: string, contextType: string, contextId?: string, conversationId?: string) =>
+  sendBuilderMessage: (
+    content: string,
+    contextType: string,
+    contextId?: string,
+    conversationId?: string,
+    model?: string,
+  ) =>
     request("/api/builders/send", {
       method: "POST",
       body: JSON.stringify({
@@ -70,6 +76,7 @@ export const api = {
         context_type: contextType,
         context_id: contextId,
         conversation_id: conversationId,
+        model: model || null,
       }),
     }),
 
