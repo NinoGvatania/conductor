@@ -18,8 +18,6 @@ WORKFLOW_TEMPLATES = [
                 {"id": "risk_assess", "type": "agent", "agent_name": "risk_scorer", "next_nodes": ["decide"]},
                 {"id": "decide", "type": "agent", "agent_name": "decision_maker", "next_nodes": []},
             ],
-            "max_total_cost_usd": 2.0,
-            "max_total_steps": 20,
         },
     },
     {
@@ -37,8 +35,6 @@ WORKFLOW_TEMPLATES = [
                 {"id": "extract", "type": "agent", "agent_name": "extractor", "next_nodes": ["draft"]},
                 {"id": "draft", "type": "agent", "agent_name": "draft_writer", "next_nodes": []},
             ],
-            "max_total_cost_usd": 1.0,
-            "max_total_steps": 10,
         },
     },
     {
@@ -57,8 +53,6 @@ WORKFLOW_TEMPLATES = [
                 {"id": "review", "type": "human", "next_nodes": ["draft"]},
                 {"id": "draft", "type": "agent", "agent_name": "draft_writer", "next_nodes": []},
             ],
-            "max_total_cost_usd": 1.5,
-            "max_total_steps": 15,
         },
     },
     {
@@ -78,8 +72,6 @@ WORKFLOW_TEMPLATES = [
                 {"id": "decide", "type": "agent", "agent_name": "decision_maker", "next_nodes": ["draft"]},
                 {"id": "draft", "type": "agent", "agent_name": "draft_writer", "next_nodes": []},
             ],
-            "max_total_cost_usd": 2.0,
-            "max_total_steps": 20,
         },
     },
     {
@@ -97,8 +89,6 @@ WORKFLOW_TEMPLATES = [
                 {"id": "risk", "type": "agent", "agent_name": "risk_scorer", "next_nodes": ["decide"]},
                 {"id": "decide", "type": "agent", "agent_name": "decision_maker", "next_nodes": []},
             ],
-            "max_total_cost_usd": 1.0,
-            "max_total_steps": 10,
         },
     },
     {
@@ -115,8 +105,6 @@ WORKFLOW_TEMPLATES = [
                 {"id": "validate", "type": "agent", "agent_name": "validator", "next_nodes": ["decide"]},
                 {"id": "decide", "type": "agent", "agent_name": "decision_maker", "next_nodes": []},
             ],
-            "max_total_cost_usd": 1.0,
-            "max_total_steps": 10,
         },
     },
 ]

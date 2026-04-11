@@ -26,5 +26,5 @@ DRAFT_WRITER_AGENT = {
     "temperature": 0.3,
     "timeout_seconds": 60,
     "max_retries": 2,
-    "max_tokens": 4096,
+    "max_tokens": 32000,
 }

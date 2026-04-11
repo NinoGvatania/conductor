@@ -142,7 +142,7 @@ async def execute_api_tool(
             try:
                 result = response.json()
             except json.JSONDecodeError:
-                result = {"text": response.text[:2000]}
+                result = {"text": response.text}
 
             return {
                 "status_code": response.status_code,

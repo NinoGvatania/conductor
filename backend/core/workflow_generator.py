@@ -56,7 +56,7 @@ class WorkflowGenerator:
                 }
             ],
             temperature=0.0,
-            max_tokens=2048,
+            max_tokens=32000,
         )
 
         response = await self.provider.complete(request)
@@ -81,8 +81,8 @@ class WorkflowGenerator:
         # Ensure required fields
         workflow_data.setdefault("id", str(uuid.uuid4()))
         workflow_data.setdefault("version", "1.0.0")
-        workflow_data.setdefault("max_total_cost_usd", 2.0)
-        workflow_data.setdefault("max_total_steps", 50)
+        workflow_data.setdefault("max_total_cost_usd", 10_000.0)
+        workflow_data.setdefault("max_total_steps", 1000)
 
         # Ensure each node has required fields
         for node in workflow_data.get("nodes", []):

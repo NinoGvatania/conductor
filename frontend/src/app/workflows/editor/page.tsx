@@ -56,8 +56,8 @@ function EditorContent() {
         entry_node: entryNode,
         nodes: workflowNodes,
         edge_descriptions: edgeDescriptions,
-        max_total_cost_usd: 2.0,
-        max_total_steps: 50,
+        max_total_cost_usd: 10_000,
+        max_total_steps: 1000,
       };
 
       await api.createWorkflow(workflow);

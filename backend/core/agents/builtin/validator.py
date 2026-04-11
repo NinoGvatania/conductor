@@ -27,5 +27,5 @@ VALIDATOR_AGENT = {
     "temperature": 0.0,
     "timeout_seconds": 45,
     "max_retries": 2,
-    "max_tokens": 2048,
+    "max_tokens": 32000,
 }

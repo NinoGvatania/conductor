@@ -30,7 +30,7 @@ export default function NewAgentPage() {
     system_prompt: "",
     constraints: "",
     clarification_rules: "",
-    temperature: 0, max_tokens: 4096,
+    temperature: 0, max_tokens: 32000,
     tools: [] as Array<{ name: string; description: string; url: string; method: string; headers: string; parameters: string }>,
     knowledge_bases: [] as Array<{ name: string; type: string; content: string }>,
     is_public: false, tags: "",

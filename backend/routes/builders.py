@@ -185,7 +185,7 @@ async def _load_entity_context(context_type: str, context_id: str | None, db: As
             return (
                 f"\n\nCurrent workflow being edited (id={w.id}):\n"
                 f"- Name: {w.name}\n"
-                f"- Definition: {w.definition_json[:800]}\n"
+                f"- Definition: {w.definition_json}\n"
                 f"Use update_workflow with id={w.id} to regenerate this workflow."
             )
 
@@ -454,7 +454,7 @@ async def send_builder_message(msg: BuilderMessage, db: AsyncSession = Depends(g
         messages=messages,
         tools=tools,
         temperature=0.4,
-        max_tokens=4096,
+        max_tokens=32000,
     )
 
     assistant_content = ""

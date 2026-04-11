@@ -290,7 +290,7 @@ async def send_message(msg: MessageSend, db: AsyncSession = Depends(get_db)):
         messages=messages,
         tools=orchestrator_tools,
         temperature=0.3,
-        max_tokens=4096,
+        max_tokens=32000,
     )
 
     assistant_content = ""
@@ -315,7 +315,7 @@ async def send_message(msg: MessageSend, db: AsyncSession = Depends(get_db)):
                     {"role": "user", "content": f"Tool execution results:\n{results_json}\n\nSummarize."},
                 ],
                 temperature=0.3,
-                max_tokens=2048,
+                max_tokens=32000,
             )
             try:
                 summary = await provider.complete(summary_request)

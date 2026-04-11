@@ -59,7 +59,7 @@ class AgentConfig(Base, TimestampMixin):
     temperature: Mapped[float] = mapped_column(Float, default=0.0)
     timeout_seconds: Mapped[int] = mapped_column(Integer, default=120)
     max_retries: Mapped[int] = mapped_column(Integer, default=3)
-    max_tokens: Mapped[int] = mapped_column(Integer, default=4096)
+    max_tokens: Mapped[int] = mapped_column(Integer, default=32000)
     tools: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
     knowledge_bases: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
     is_public: Mapped[bool] = mapped_column(Boolean, default=False)

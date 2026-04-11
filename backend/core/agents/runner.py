@@ -247,13 +247,13 @@ class AgentRunner:
         if not constraints.strip():
             return
 
-        # Serialize output for the judge
+        # Serialize output for the judge — full text, no artificial truncation.
+        # Judge uses fast-tier model with 200k context; if the agent somehow
+        # produced output longer than that, the Anthropic API will surface it.
         if isinstance(output, (dict, list)):
             output_text = json.dumps(output, ensure_ascii=False)
         else:
             output_text = str(output)
-        if len(output_text) > 6000:
-            output_text = output_text[:6000] + "\n…[truncated]"
 
         judge_task = (
             f"CONSTRAINTS:\n{constraints}\n\n"

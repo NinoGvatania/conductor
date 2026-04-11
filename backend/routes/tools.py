@@ -89,9 +89,9 @@ async def tool_wizard(request: ToolWizardRequest):
     llm_request = LLMRequest(
         model=model_router.resolve("balanced"),
         system_prompt=WIZARD_PROMPT,
-        messages=[{"role": "user", "content": f"Generate tool configs from:\n\n{request.api_docs[:5000]}\n\n{f'Focus: {request.description}' if request.description else ''}"}],
+        messages=[{"role": "user", "content": f"Generate tool configs from:\n\n{request.api_docs}\n\n{f'Focus: {request.description}' if request.description else ''}"}],
         temperature=0.0,
-        max_tokens=8192,
+        max_tokens=32000,
     )
 
     content = ""

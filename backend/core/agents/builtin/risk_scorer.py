@@ -37,5 +37,5 @@ RISK_SCORER_AGENT = {
     "temperature": 0.0,
     "timeout_seconds": 90,
     "max_retries": 2,
-    "max_tokens": 4096,
+    "max_tokens": 32000,
 }

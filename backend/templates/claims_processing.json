@@ -87,6 +87,6 @@
       "config": {}
     }
   ],
-  "max_total_cost_usd": 2.0,
-  "max_total_steps": 50
+  "max_total_cost_usd": 10000,
+  "max_total_steps": 1000
 }

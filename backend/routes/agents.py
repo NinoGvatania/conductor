@@ -44,7 +44,7 @@ class AgentCreate(BaseModel):
     temperature: float = 0.0
     timeout_seconds: int = 120
     max_retries: int = 3
-    max_tokens: int = 4096
+    max_tokens: int = 32000
     tools: list[dict[str, Any]] = Field(default_factory=list)
     knowledge_bases: list[dict[str, Any]] = Field(default_factory=list)
     is_public: bool = False

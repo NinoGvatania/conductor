@@ -13,10 +13,17 @@ class Settings(BaseSettings):
     # LLM
     DEFAULT_PROVIDER: str = "anthropic"
     DEFAULT_MODEL_TIER: str = "balanced"
+    # Default output cap passed to LLM providers. Chosen to fit all current
+    # Anthropic/OpenAI models (Sonnet 64k, Opus 32k, gpt-4o 16k — the provider
+    # will clamp down if the model supports less). Not an artificial limit on
+    # context — input windows are purely the model's capacity.
+    DEFAULT_MAX_TOKENS: int = 32000
 
-    # Limits
-    MAX_COST_PER_RUN: float = 2.0
-    MAX_TOKENS_PER_RUN: int = 100_000
+    # Safety rails — raised from tight defaults to effectively "no limit in
+    # practice" while still catching runaway loops. Set env vars to lower if
+    # you want tighter control.
+    MAX_COST_PER_RUN: float = 10_000.0
+    MAX_TOKENS_PER_RUN: int = 100_000_000
 
     # Storage
     STORAGE_DIR: str = "./storage"

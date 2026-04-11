@@ -11,7 +11,7 @@ class LLMRequest(BaseModel):
     tools: list[dict[str, Any]] = Field(default_factory=list)
     output_schema: dict[str, Any] | None = None
     temperature: float = 0.0
-    max_tokens: int = 4096
+    max_tokens: int = 32000
 
 
 class LLMResponse(BaseModel):

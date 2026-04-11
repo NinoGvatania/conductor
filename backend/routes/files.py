@@ -38,7 +38,7 @@ async def upload_file(
 
         text_content = ""
         try:
-            text_content = content.decode("utf-8")[:50000]
+            text_content = content.decode("utf-8")
         except UnicodeDecodeError:
             text_content = f"[Binary file: {file.filename}, {len(content)} bytes]"
 

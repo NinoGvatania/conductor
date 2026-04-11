@@ -22,7 +22,7 @@ class AgentContract(BaseModel):
     clarification_rules: str = ""
     allowed_tools: list[str] = Field(default_factory=list)
     output_schema: dict[str, Any] = Field(default_factory=dict)
-    max_tokens: int = 4096
+    max_tokens: int = 32000
     temperature: float = 0.0
     timeout_seconds: int = 120
     max_retries: int = 3

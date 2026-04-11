@@ -39,5 +39,5 @@ class WorkflowDefinition(BaseModel):
     nodes: list[NodeDefinition]
     # Key format: "source_node_id->target_node_id" → explanation of the connection
     edge_descriptions: dict[str, str] = Field(default_factory=dict)
-    max_total_cost_usd: float = 2.0
-    max_total_steps: int = 50
+    max_total_cost_usd: float = 10_000.0
+    max_total_steps: int = 1000
