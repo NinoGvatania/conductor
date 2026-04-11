@@ -14,6 +14,7 @@ from backend.models.tables import (
     Message,
     LLMProvider,
     ProjectMember,
+    KnowledgeBase,
     KnowledgeChunk,
 )
 
@@ -33,5 +34,6 @@ __all__ = [
     "Message",
     "LLMProvider",
     "ProjectMember",
+    "KnowledgeBase",
     "KnowledgeChunk",
 ]

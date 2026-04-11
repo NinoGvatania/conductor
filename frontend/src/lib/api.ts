@@ -147,6 +147,38 @@ export const api = {
   getProviderModels: (provider: string) =>
     request(`/api/llm-providers/${provider}/models`),
 
+  // Knowledge Bases
+  listKnowledgeBases: (projectId?: string) =>
+    request(`/api/knowledge-bases${projectId ? `?project_id=${projectId}` : ""}`),
+  getKnowledgeBase: (id: string) => request(`/api/knowledge-bases/${id}`),
+  createKnowledgeBase: (name: string, description = "", projectId?: string) =>
+    request("/api/knowledge-bases", {
+      method: "POST",
+      body: JSON.stringify({ name, description, project_id: projectId }),
+    }),
+  updateKnowledgeBase: (id: string, data: Record<string, unknown>) =>
+    request(`/api/knowledge-bases/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteKnowledgeBase: (id: string) =>
+    request(`/api/knowledge-bases/${id}`, { method: "DELETE" }),
+  uploadKnowledgeBaseFile: async (kbId: string, file: File) => {
+    const token = getToken();
+    const formData = new FormData();
+    formData.append("file", file);
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/api/knowledge-bases/${kbId}/upload`, {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+    if (!res.ok) throw new Error("Upload failed");
+    return res.json();
+  },
+  removeKnowledgeBaseFile: (kbId: string, filename: string) =>
+    request(`/api/knowledge-bases/${kbId}/files/${encodeURIComponent(filename)}`, {
+      method: "DELETE",
+    }),
+
   // Files
   uploadFile: async (file: File, agentId = "") => {
     const token = getToken();

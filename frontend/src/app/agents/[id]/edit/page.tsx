@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import ToolPicker from "@/components/ToolPicker";
+import KnowledgePicker from "@/components/KnowledgePicker";
 import BuilderChat from "@/components/BuilderChat";
 
 export default function EditAgentPage() {
@@ -14,6 +15,7 @@ export default function EditAgentPage() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showToolPicker, setShowToolPicker] = useState(false);
+  const [showKbPicker, setShowKbPicker] = useState(false);
   const [availableModels, setAvailableModels] = useState<
     Array<{ id: string; name: string; provider: string }>
   >([]);
@@ -27,8 +29,21 @@ export default function EditAgentPage() {
     clarification_rules: "",
     temperature: 0, timeout_seconds: 120, max_retries: 3,
     max_tokens: "" as number | "",  // empty string = "auto / use model max"
-    tools: [] as Array<{ name: string; description: string }>,
-    knowledge_bases: [] as Array<{ name: string; type: string; source: string }>,
+    tools: [] as Array<{
+      name: string;
+      description: string;
+      connection_id?: string | null;
+      connection_name?: string | null;
+    }>,
+    knowledge_bases: [] as Array<{
+      id?: string;
+      name: string;
+      description?: string;
+      file_count?: number;
+      // legacy fields kept for backwards compat
+      type?: string;
+      source?: string;
+    }>,
     is_public: false, tags: "",
   });
 
@@ -75,7 +90,7 @@ export default function EditAgentPage() {
         max_retries: (d.max_retries as number) || 3,
         max_tokens: rawMaxTokens == null ? "" : rawMaxTokens,
         tools: (d.tools as Array<{ name: string; description: string }>) || [],
-        knowledge_bases: (d.knowledge_bases as Array<{ name: string; type: string; source: string }>) || [],
+        knowledge_bases: (d.knowledge_bases as Array<{ id?: string; name: string; description?: string; file_count?: number; type?: string; source?: string }>) || [],
         is_public: (d.is_public as boolean) || false,
         tags: Array.isArray(d.tags) ? (d.tags as string[]).join(", ") : "",
       });
@@ -93,14 +108,17 @@ export default function EditAgentPage() {
   }
 
   async function handleSave() {
+    if (!form.model) {
+      alert("Выбери модель — поле Model обязательное.");
+      return;
+    }
     setSaving(true);
     try {
       await api.updateAgent(agentId, {
         ...form,
         // "" → null (auto, use model max); a number stays a number
         max_tokens: form.max_tokens === "" ? null : form.max_tokens,
-        // "" model → null (fall back to tier)
-        model: form.model || null,
+        model: form.model,
         tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
       });
       router.push(`/agents/${agentId}`);
@@ -135,7 +153,9 @@ export default function EditAgentPage() {
 
         <div className="grid grid-cols-3 gap-3">
           <div className="col-span-2">
-            <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Model</label>
+            <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>
+              Model <span style={{ color: "#ee4444" }}>*</span>
+            </label>
             <select
               value={form.model}
               onChange={(e) => {
@@ -153,7 +173,7 @@ export default function EditAgentPage() {
                 <option value="">No providers connected — go to Settings</option>
               ) : (
                 <>
-                  <option value="">— Use tier default ({form.model_tier}) —</option>
+                  <option value="">— Выбери модель —</option>
                   {Object.entries(
                     availableModels.reduce<Record<string, typeof availableModels>>((acc, m) => {
                       (acc[m.provider] = acc[m.provider] || []).push(m);
@@ -170,7 +190,7 @@ export default function EditAgentPage() {
               )}
             </select>
             <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
-              Выбери конкретную модель из подключённых провайдеров. Пусто — fallback на tier ({form.model_tier}).
+              Обязательное поле. Если моделей нет — подключи провайдера в Settings.
             </p>
           </div>
           <div>
@@ -244,23 +264,56 @@ export default function EditAgentPage() {
           )}
           {form.tools.length > 0 ? (
             <div className="flex flex-wrap gap-2">
-              {form.tools.map((t, i) => (
-                <div
-                  key={i}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs"
-                  style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}
-                >
-                  <span style={{ color: "var(--text-primary)" }}>{t.name}</span>
-                  <button
-                    onClick={() => update("tools", form.tools.filter((_, j) => j !== i))}
-                    className="text-[11px] leading-none"
-                    style={{ color: "var(--text-muted)" }}
-                    title="Remove"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
+              {(() => {
+                // Group attached tools by integration (connection_name).
+                // Tools without a connection (orphans) show individually.
+                const groups = new Map<
+                  string,
+                  { label: string; connectionId: string | null; tools: typeof form.tools }
+                >();
+                for (const t of form.tools) {
+                  const connId = t.connection_id || null;
+                  const key = connId || `orphan:${t.name}`;
+                  const label = t.connection_name || t.name;
+                  const existing = groups.get(key);
+                  if (existing) existing.tools.push(t);
+                  else groups.set(key, { label, connectionId: connId, tools: [t] });
+                }
+                const entries = Array.from(groups.values());
+                return entries.map((group) => {
+                  const count = group.tools.length;
+                  const isIntegration = !!group.connectionId;
+                  return (
+                    <div
+                      key={group.label}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs"
+                      style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}
+                    >
+                      <span style={{ color: "var(--text-primary)" }}>{group.label}</span>
+                      {isIntegration && count > 1 && (
+                        <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                          {count} actions
+                        </span>
+                      )}
+                      <button
+                        onClick={() => {
+                          // Remove ALL tools of this integration at once
+                          const namesToRemove = new Set(group.tools.map((t) => t.name));
+                          update(
+                            "tools",
+                            form.tools.filter((t) => !namesToRemove.has(t.name)),
+                          );
+                        }}
+                        className="text-[11px] leading-none"
+                        style={{ color: "var(--text-muted)" }}
+                        title="Remove integration"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  );
+                });
+              })()}
             </div>
           ) : (
             <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
@@ -277,21 +330,53 @@ export default function EditAgentPage() {
         {/* Knowledge Bases */}
         <div>
           <div className="flex justify-between items-center mb-2">
-            <label className="text-xs" style={{ color: "var(--text-muted)" }}>Knowledge Bases</label>
-            <button onClick={() => update("knowledge_bases", [...form.knowledge_bases, { name: "", type: "text", source: "" }])} className="text-xs" style={{ color: "var(--accent)" }}>+ Add</button>
+            <label className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>Knowledge Bases</label>
+            <button
+              onClick={() => setShowKbPicker(true)}
+              className="text-xs px-2 py-1 rounded"
+              style={{ color: "#0cce6b", border: "1px solid var(--border)" }}
+            >
+              + Add from library
+            </button>
           </div>
-          {form.knowledge_bases.map((kb, i) => (
-            <div key={i} className="flex gap-2 mb-2">
-              <input value={kb.name} onChange={(e) => { const arr = [...form.knowledge_bases]; arr[i] = { ...arr[i], name: e.target.value }; update("knowledge_bases", arr); }} placeholder="Name" className="flex-1 px-3 py-2 rounded-md text-sm" style={inputStyle} />
-              <select value={kb.type} onChange={(e) => { const arr = [...form.knowledge_bases]; arr[i] = { ...arr[i], type: e.target.value }; update("knowledge_bases", arr); }} className="px-3 py-2 rounded-md text-sm" style={inputStyle}>
-                <option value="text">Text</option>
-                <option value="url">URL</option>
-                <option value="file">File</option>
-              </select>
-              <input value={kb.source} onChange={(e) => { const arr = [...form.knowledge_bases]; arr[i] = { ...arr[i], source: e.target.value }; update("knowledge_bases", arr); }} placeholder="Source" className="flex-[2] px-3 py-2 rounded-md text-sm" style={inputStyle} />
-              <button onClick={() => update("knowledge_bases", form.knowledge_bases.filter((_, j) => j !== i))} className="text-xs px-2" style={{ color: "var(--error)" }}>✕</button>
+          {showKbPicker && (
+            <KnowledgePicker
+              selectedIds={form.knowledge_bases.map((kb) => (kb as { id?: string }).id || "").filter(Boolean)}
+              onConfirm={(picked) => update("knowledge_bases", picked)}
+              onClose={() => setShowKbPicker(false)}
+            />
+          )}
+          {form.knowledge_bases.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {form.knowledge_bases.map((kb, i) => {
+                const name = (kb as { name?: string }).name || "Knowledge base";
+                return (
+                  <div
+                    key={i}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs"
+                    style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}
+                  >
+                    <span>📚</span>
+                    <span style={{ color: "var(--text-primary)" }}>{name}</span>
+                    <button
+                      onClick={() => update("knowledge_bases", form.knowledge_bases.filter((_, j) => j !== i))}
+                      className="text-[11px] leading-none"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                );
+              })}
             </div>
-          ))}
+          ) : (
+            <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+              Нет подключённых баз знаний. Создавай и загружай файлы во{" "}
+              <a href="/knowledge" target="_blank" style={{ color: "var(--accent-light, #3291ff)", textDecoration: "underline" }}>
+                вкладке Knowledge
+              </a>.
+            </p>
+          )}
         </div>
 
         <label className="flex items-center gap-2">
@@ -300,7 +385,13 @@ export default function EditAgentPage() {
         </label>
 
         <div className="flex gap-2 pt-2">
-          <button onClick={handleSave} disabled={saving} className="px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50" style={{ background: "var(--text-primary)", color: "var(--bg-primary)" }}>
+          <button
+            onClick={handleSave}
+            disabled={saving || !form.model}
+            className="px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50"
+            style={{ background: "var(--text-primary)", color: "var(--bg-primary)" }}
+            title={!form.model ? "Выбери модель" : undefined}
+          >
             {saving ? "Saving..." : "Save"}
           </button>
           <button onClick={() => router.push(`/agents/${agentId}`)} className="px-4 py-2 rounded-md text-sm" style={{ color: "var(--text-muted)", border: "1px solid var(--border)" }}>Cancel</button>

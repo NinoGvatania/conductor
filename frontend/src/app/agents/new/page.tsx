@@ -5,12 +5,14 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import BuilderChat from "@/components/BuilderChat";
 import ToolPicker from "@/components/ToolPicker";
+import KnowledgePicker from "@/components/KnowledgePicker";
 
 export default function NewAgentPage() {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showToolPicker, setShowToolPicker] = useState(false);
+  const [showKbPicker, setShowKbPicker] = useState(false);
   const [availableModels, setAvailableModels] = useState<
     Array<{ id: string; name: string; provider: string }>
   >([]);
@@ -23,8 +25,21 @@ export default function NewAgentPage() {
     clarification_rules: "",
     temperature: 0,
     max_tokens: "" as number | "", // empty = auto, use model max
-    tools: [] as Array<{ name: string; description: string; url: string; method: string; headers: string; parameters: string }>,
-    knowledge_bases: [] as Array<{ name: string; type: string; content: string }>,
+    tools: [] as Array<{
+      name: string;
+      description: string;
+      connection_id?: string | null;
+      connection_name?: string | null;
+    }>,
+    knowledge_bases: [] as Array<{
+      id?: string;
+      name: string;
+      description?: string;
+      file_count?: number;
+      // legacy fields kept for backwards compat
+      type?: string;
+      content?: string;
+    }>,
     is_public: false, tags: "",
   });
 
@@ -50,31 +65,26 @@ export default function NewAgentPage() {
       }
       if (!cancelled) {
         setAvailableModels(all);
-        // Default-select the first model if form.model is empty
-        if (all.length > 0 && !form.model) {
-          update("model", all[0].id);
-          update("provider", all[0].provider);
-        }
+        // NO auto-default — user must pick the model explicitly. If they ask
+        // the AI helper to create the agent, the AI will set model itself.
       }
     }
     run();
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function handleSave() {
     if (!form.name.trim()) return;
+    if (!form.model) {
+      alert("Выбери модель — поле Model обязательное.");
+      return;
+    }
     setSaving(true);
     try {
-      const parsedTools = form.tools.map((t) => ({
-        name: t.name, description: t.description, url: t.url, method: t.method,
-        headers: t.headers ? JSON.parse(t.headers) : {},
-        parameters: t.parameters ? JSON.parse(t.parameters) : {},
-      }));
       await api.createAgent({
         ...form,
-        tools: parsedTools,
-        model: form.model || null,
+        tools: form.tools,
+        model: form.model,
         max_tokens: form.max_tokens === "" ? null : form.max_tokens,
         output_schema: {},
         tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
@@ -107,7 +117,9 @@ export default function NewAgentPage() {
 
         {/* Model picker — every connected provider's models grouped */}
         <div>
-          <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Model</label>
+          <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>
+            Model <span style={{ color: "#ee4444" }}>*</span>
+          </label>
           <select
             value={form.model}
             onChange={(e) => {
@@ -117,27 +129,33 @@ export default function NewAgentPage() {
               if (picked) update("provider", picked.provider);
             }}
             className="w-full px-3 py-2 rounded-md text-sm"
-            style={s}
+            style={{
+              ...s,
+              borderColor: form.model ? (s as { border?: string }).border?.split(" ")[2] : "#ee4444",
+            }}
           >
             {availableModels.length === 0 ? (
               <option value="">No providers connected — go to Settings</option>
             ) : (
-              Object.entries(
-                availableModels.reduce<Record<string, typeof availableModels>>((acc, m) => {
-                  (acc[m.provider] = acc[m.provider] || []).push(m);
-                  return acc;
-                }, {}),
-              ).map(([provider, list]) => (
-                <optgroup key={provider} label={provider.charAt(0).toUpperCase() + provider.slice(1)}>
-                  {list.map((m) => (
-                    <option key={m.id} value={m.id}>{m.name}</option>
-                  ))}
-                </optgroup>
-              ))
+              <>
+                <option value="">— Выбери модель —</option>
+                {Object.entries(
+                  availableModels.reduce<Record<string, typeof availableModels>>((acc, m) => {
+                    (acc[m.provider] = acc[m.provider] || []).push(m);
+                    return acc;
+                  }, {}),
+                ).map(([provider, list]) => (
+                  <optgroup key={provider} label={provider.charAt(0).toUpperCase() + provider.slice(1)}>
+                    {list.map((m) => (
+                      <option key={m.id} value={m.id}>{m.name}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </>
             )}
           </select>
           <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
-            Подключи больше провайдеров в Settings, чтобы появились модели в списке.
+            Обязательное поле. Если моделей нет — подключи провайдера в Settings.
           </p>
         </div>
 
@@ -177,41 +195,55 @@ export default function NewAgentPage() {
           {showToolPicker && (
             <ToolPicker
               selectedNames={form.tools.map((t) => t.name)}
-              onConfirm={(picked) => {
-                update(
-                  "tools",
-                  picked.map((t) => ({
-                    name: t.name,
-                    description: t.description,
-                    url: t.url,
-                    method: t.method,
-                    headers: "",
-                    parameters: "",
-                  })),
-                );
-              }}
+              onConfirm={(picked) => update("tools", picked)}
               onClose={() => setShowToolPicker(false)}
             />
           )}
           {form.tools.length > 0 ? (
             <div className="flex flex-wrap gap-2">
-              {form.tools.map((tool, i) => (
-                <div
-                  key={i}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs"
-                  style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}
-                >
-                  <span style={{ color: "var(--text-primary)" }}>{tool.name}</span>
-                  <button
-                    onClick={() => update("tools", form.tools.filter((_, j) => j !== i))}
-                    className="text-[11px] leading-none"
-                    style={{ color: "var(--text-muted)" }}
-                    title="Remove"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
+              {(() => {
+                const groups = new Map<
+                  string,
+                  { label: string; connectionId: string | null; tools: typeof form.tools }
+                >();
+                for (const t of form.tools) {
+                  const connId = t.connection_id || null;
+                  const key = connId || `orphan:${t.name}`;
+                  const label = t.connection_name || t.name;
+                  const existing = groups.get(key);
+                  if (existing) existing.tools.push(t);
+                  else groups.set(key, { label, connectionId: connId, tools: [t] });
+                }
+                return Array.from(groups.values()).map((group) => {
+                  const count = group.tools.length;
+                  const isIntegration = !!group.connectionId;
+                  return (
+                    <div
+                      key={group.label}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs"
+                      style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}
+                    >
+                      <span style={{ color: "var(--text-primary)" }}>{group.label}</span>
+                      {isIntegration && count > 1 && (
+                        <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                          {count} actions
+                        </span>
+                      )}
+                      <button
+                        onClick={() => {
+                          const namesToRemove = new Set(group.tools.map((t) => t.name));
+                          update("tools", form.tools.filter((t) => !namesToRemove.has(t.name)));
+                        }}
+                        className="text-[11px] leading-none"
+                        style={{ color: "var(--text-muted)" }}
+                        title="Remove integration"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  );
+                });
+              })()}
             </div>
           ) : (
             <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
@@ -228,53 +260,50 @@ export default function NewAgentPage() {
         {/* Knowledge Bases */}
         <div>
           <div className="flex justify-between items-center mb-2">
-            <label className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>Knowledge Base</label>
-            <button onClick={() => update("knowledge_bases", [...form.knowledge_bases, { name: "", type: "text", content: "" }])} className="text-xs" style={{ color: "var(--accent-light, #3291ff)" }}>+ Add</button>
+            <label className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>Knowledge Bases</label>
+            <button
+              onClick={() => setShowKbPicker(true)}
+              className="text-xs px-2 py-1 rounded"
+              style={{ color: "#0cce6b", border: "1px solid var(--border)" }}
+            >
+              + Add from library
+            </button>
           </div>
-          {form.knowledge_bases.map((kb, i) => (
-            <div key={i} className="rounded-lg p-3 mb-2" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
-              <div className="flex justify-between mb-2">
-                <div className="flex gap-2">
-                  {["text", "url", "file"].map((t) => (
-                    <button key={t} onClick={() => { const k = [...form.knowledge_bases]; k[i] = { ...k[i], type: t, content: "" }; update("knowledge_bases", k); }}
-                      className="text-[10px] px-2 py-0.5 rounded capitalize"
-                      style={{ background: kb.type === t ? "var(--bg-hover)" : "transparent", color: kb.type === t ? "var(--text-primary)" : "var(--text-muted)", border: `1px solid ${kb.type === t ? "var(--text-primary)" : "var(--border)"}` }}>
-                      {t}
-                    </button>
-                  ))}
+          {showKbPicker && (
+            <KnowledgePicker
+              selectedIds={form.knowledge_bases.map((kb) => kb.id || "").filter(Boolean)}
+              onConfirm={(picked) => update("knowledge_bases", picked)}
+              onClose={() => setShowKbPicker(false)}
+            />
+          )}
+          {form.knowledge_bases.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {form.knowledge_bases.map((kb, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs"
+                  style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}
+                >
+                  <span>📚</span>
+                  <span style={{ color: "var(--text-primary)" }}>{kb.name}</span>
+                  <button
+                    onClick={() => update("knowledge_bases", form.knowledge_bases.filter((_, j) => j !== i))}
+                    className="text-[11px] leading-none"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    ×
+                  </button>
                 </div>
-                <button onClick={() => update("knowledge_bases", form.knowledge_bases.filter((_, j) => j !== i))} className="text-[10px]" style={{ color: "#ee0000" }}>Remove</button>
-              </div>
-              <input value={kb.name} onChange={(e) => { const k = [...form.knowledge_bases]; k[i] = { ...k[i], name: e.target.value }; update("knowledge_bases", k); }} placeholder="Name" className="w-full px-2 py-1.5 rounded text-xs mb-2" style={s} />
-              {kb.type === "text" && (
-                <textarea value={kb.content} onChange={(e) => { const k = [...form.knowledge_bases]; k[i] = { ...k[i], content: e.target.value }; update("knowledge_bases", k); }} placeholder="Paste your knowledge text here..." rows={4} className="w-full px-2 py-1.5 rounded text-xs" style={s} />
-              )}
-              {kb.type === "url" && (
-                <input value={kb.content} onChange={(e) => { const k = [...form.knowledge_bases]; k[i] = { ...k[i], content: e.target.value }; update("knowledge_bases", k); }} placeholder="https://docs.example.com/api" className="w-full px-2 py-1.5 rounded text-xs" style={s} />
-              )}
-              {kb.type === "file" && (
-                <div className="rounded-md p-4 text-center" style={{ border: "1px dashed var(--border)" }}>
-                  {kb.content ? (
-                    <p className="text-xs" style={{ color: "var(--text-primary)" }}>{kb.content}</p>
-                  ) : (
-                    <>
-                    <input type="file" onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      try {
-                        const result = (await api.uploadFile(file)) as { filename: string; url: string | null; text_content?: string };
-                        const k = [...form.knowledge_bases];
-                        k[i] = { ...k[i], content: result.url || result.text_content || result.filename };
-                        update("knowledge_bases", k);
-                      } catch { alert("Upload failed"); }
-                    }} className="text-xs" style={{ color: "var(--text-muted)" }} />
-                    <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>Max 10MB</p>
-                    </>
-                  )}
-                </div>
-              )}
+              ))}
             </div>
-          ))}
+          ) : (
+            <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+              Нет подключённых баз знаний. Создавай и загружай файлы во{" "}
+              <a href="/knowledge" target="_blank" style={{ color: "var(--accent-light, #3291ff)", textDecoration: "underline" }}>
+                вкладке Knowledge
+              </a>.
+            </p>
+          )}
         </div>
 
         {/* Advanced */}
@@ -315,7 +344,13 @@ export default function NewAgentPage() {
 
         {/* Save */}
         <div className="flex gap-2 pt-2">
-          <button onClick={handleSave} disabled={saving || !form.name.trim()} className="px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50" style={{ background: "var(--text-primary)", color: "var(--bg-primary)" }}>
+          <button
+            onClick={handleSave}
+            disabled={saving || !form.name.trim() || !form.model}
+            className="px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50"
+            style={{ background: "var(--text-primary)", color: "var(--bg-primary)" }}
+            title={!form.model ? "Выбери модель" : undefined}
+          >
             {saving ? "Creating..." : "Create Agent"}
           </button>
           <button onClick={() => router.push("/agents")} className="px-4 py-2 rounded-md text-sm" style={{ color: "var(--text-muted)", border: "1px solid var(--border)" }}>Cancel</button>

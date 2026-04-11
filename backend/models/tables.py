@@ -177,6 +177,19 @@ class LLMProvider(Base, TimestampMixin):
     config: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
 
 
+class KnowledgeBase(Base, TimestampMixin):
+    """User-managed collection of files/texts that agents can pull from."""
+    __tablename__ = "knowledge_bases"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), index=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    # List of {filename, text, size, uploaded_at} entries. Keeping this as JSONB
+    # is enough for the MVP — when we need real chunking / vector search we'll
+    # promote this into KnowledgeChunk rows keyed by knowledge_base_id.
+    files: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
+
+
 class KnowledgeChunk(Base, TimestampMixin):
     __tablename__ = "knowledge_chunks"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

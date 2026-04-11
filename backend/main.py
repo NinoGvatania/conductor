@@ -12,6 +12,7 @@ from backend.routes import (
     connections,
     conversations,
     files,
+    knowledge_bases,
     llm_providers,
     projects,
     runs,
@@ -62,6 +63,7 @@ app.include_router(builders.router)
 app.include_router(agents.router)
 app.include_router(connections.router)
 app.include_router(tools.router)
+app.include_router(knowledge_bases.router)
 app.include_router(workflows.router)
 app.include_router(runs.router)
 app.include_router(llm_providers.router)
