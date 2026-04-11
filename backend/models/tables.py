@@ -53,7 +53,6 @@ class AgentConfig(Base, TimestampMixin):
     model_tier: Mapped[str] = mapped_column(String(50), default="balanced")
     provider: Mapped[str] = mapped_column(String(50), default="anthropic")
     system_prompt: Mapped[str] = mapped_column(Text, default="")
-    negative_prompt: Mapped[str] = mapped_column(Text, default="", server_default="")
     constraints: Mapped[str] = mapped_column(Text, default="", server_default="")
     clarification_rules: Mapped[str] = mapped_column(Text, default="", server_default="")
     output_schema: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)

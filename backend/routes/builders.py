@@ -38,9 +38,8 @@ When the user describes what they need, suggest concrete values for:
 - name (snake_case)
 - description (1 sentence)
 - purpose (why this agent exists)
-- system_prompt (detailed instructions)
-- negative_prompt (what NOT to do, forbidden behaviors)
-- constraints (hard limits the agent must follow)
+- system_prompt (detailed instructions — positive framing of what to do)
+- constraints (HARD rules the agent must follow: forbidden behaviors, response length limits, format requirements, language, policy limits. Every response is automatically checked against these, and the agent is forced to retry if it violates any.)
 - clarification_rules (when the agent should ask for clarification instead of guessing)
 - model_tier (fast/balanced/powerful)
 - tools needed (describe, not create)
@@ -49,11 +48,14 @@ Respond in the user's language. Be concrete and actionable. Suggest fields inlin
 
 **Name:** sales_manager
 **System Prompt:** You are a sales manager...
-**Negative Prompt:** Never promise discounts above 20%...
-**Constraints:** Maximum response length 500 words...
+**Constraints:**
+- Never promise discounts above 20%
+- Response must be under 500 words
+- Never share internal financial data
+- Always respond in the user's language
 **Clarification Rules:** Ask when customer's budget is unclear...
 
-The user will copy these values into the form manually."""
+Because constraints are enforced via post-validation, write them as clear, checkable rules — one per line if possible. The user will copy these values into the form manually."""
 
 
 WORKFLOW_BUILDER_PROMPT = """You help the user design a workflow — a pipeline of AI agents working together.
@@ -92,7 +94,7 @@ async def _load_entity_context(context_type: str, context_id: str | None, db: As
         result = await db.execute(select(AgentConfig).where(AgentConfig.id == cid))
         a = result.scalar_one_or_none()
         if a:
-            return f"\n\nCurrent agent configuration:\n- Name: {a.name}\n- System Prompt: {a.system_prompt or '(empty)'}\n- Negative Prompt: {a.negative_prompt or '(empty)'}\n- Constraints: {a.constraints or '(empty)'}\n- Clarification Rules: {a.clarification_rules or '(empty)'}"
+            return f"\n\nCurrent agent configuration:\n- Name: {a.name}\n- System Prompt: {a.system_prompt or '(empty)'}\n- Constraints: {a.constraints or '(empty)'}\n- Clarification Rules: {a.clarification_rules or '(empty)'}"
 
     elif context_type == "workflow_builder":
         result = await db.execute(select(Workflow).where(Workflow.id == cid))

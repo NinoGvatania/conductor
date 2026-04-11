@@ -6,7 +6,7 @@ from typing import Any
 import jsonschema
 import structlog
 
-from backend.core.contracts.agent import AgentContract
+from backend.core.contracts.agent import AgentContract, ModelTier
 from backend.core.contracts.errors import (
     CorrectableError,
     EscalatableError,
@@ -19,6 +19,20 @@ from backend.core.providers.model_router import ModelRouter
 from backend.core.tools.executor import execute_api_tool, tools_to_claude_format
 
 logger = structlog.get_logger()
+
+CONSTRAINT_JUDGE_SYSTEM_PROMPT = (
+    "You are a strict compliance checker for AI agent outputs. "
+    "Given a set of CONSTRAINTS (hard rules the agent must follow) and an OUTPUT "
+    "(the agent's response), determine whether the output violates ANY constraint.\n\n"
+    "Rules:\n"
+    "- Be strict but reasonable. Flag real violations, not minor stylistic choices.\n"
+    "- A constraint is violated ONLY if the output clearly breaks it.\n"
+    "- If a constraint is about format/length/language, check it precisely.\n"
+    "- If a constraint is about forbidden content, check that the content is absent.\n\n"
+    "Respond with ONLY valid JSON, no markdown, no prose:\n"
+    '{"violated": true|false, "violations": ["specific violation 1", "specific violation 2"]}\n'
+    'If nothing is violated, return {"violated": false, "violations": []}.'
+)
 
 
 class AgentRunner:
@@ -47,10 +61,13 @@ class AgentRunner:
 
         # Build enriched system prompt with constraints
         system_parts = [agent_contract.system_prompt or ""]
-        if getattr(agent_contract, "negative_prompt", ""):
-            system_parts.append(f"\n\n## Do NOT do the following:\n{agent_contract.negative_prompt}")
         if getattr(agent_contract, "constraints", ""):
-            system_parts.append(f"\n\n## Constraints (must follow):\n{agent_contract.constraints}")
+            system_parts.append(
+                f"\n\n## HARD CONSTRAINTS (must follow — your response will be automatically checked against these):\n"
+                f"{agent_contract.constraints}\n\n"
+                "If your response violates ANY constraint above, it will be rejected and you will be asked to retry. "
+                "Treat these as absolute rules, not suggestions."
+            )
         if getattr(agent_contract, "clarification_rules", ""):
             system_parts.append(
                 f"\n\n## When to ask for clarification:\n{agent_contract.clarification_rules}\n\n"
@@ -109,6 +126,15 @@ class AgentRunner:
                     except jsonschema.ValidationError as e:
                         # Log but don't fail — continue with whatever output we have
                         logger.warning("agent_schema_mismatch", agent=agent_contract.name, error=e.message)
+
+                # Hard constraint post-validation — checks output against agent's declared constraints.
+                # Raises CorrectableError on violation, which triggers retry with feedback.
+                if getattr(agent_contract, "constraints", ""):
+                    await self._validate_constraints(
+                        agent_name=agent_contract.name,
+                        constraints=agent_contract.constraints,
+                        output=output,
+                    )
 
                 # Execute any tool calls the LLM requested
                 executed_tools: list[dict[str, Any]] = []
@@ -203,4 +229,90 @@ class AgentRunner:
             agent_name=agent_contract.name,
             error=last_error or "Max retries exceeded",
             retries=retries,
+        )
+
+    async def _validate_constraints(
+        self,
+        agent_name: str,
+        constraints: str,
+        output: Any,
+    ) -> None:
+        """LLM-as-judge post-validation of agent output against declared constraints.
+
+        Raises CorrectableError (which is retryable by default via retry_on=["schema_validation"])
+        if any constraint is violated, feeding the violation back to the agent for correction.
+        On judge failures (timeout, invalid JSON, etc.) this is lenient — logs and returns,
+        rather than blocking a valid agent response on judge infrastructure issues.
+        """
+        if not constraints.strip():
+            return
+
+        # Serialize output for the judge
+        if isinstance(output, (dict, list)):
+            output_text = json.dumps(output, ensure_ascii=False)
+        else:
+            output_text = str(output)
+        if len(output_text) > 6000:
+            output_text = output_text[:6000] + "\n…[truncated]"
+
+        judge_task = (
+            f"CONSTRAINTS:\n{constraints}\n\n"
+            f"OUTPUT TO CHECK:\n{output_text}\n\n"
+            "Return compliance JSON only."
+        )
+        judge_request = LLMRequest(
+            model=self.model_router.resolve(ModelTier.fast),
+            system_prompt=CONSTRAINT_JUDGE_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": judge_task}],
+            temperature=0.0,
+            max_tokens=512,
+        )
+
+        try:
+            judge_response = await asyncio.wait_for(
+                self.provider.complete(judge_request),
+                timeout=30,
+            )
+        except Exception as e:
+            # Don't block agent on judge infrastructure failure
+            logger.warning("constraint_judge_unavailable", agent=agent_name, error=str(e))
+            return
+
+        judge_text = (judge_response.content or "").strip()
+        if not judge_text:
+            return
+
+        # Extract JSON (tolerate markdown fencing or extra prose)
+        json_start = judge_text.find("{")
+        json_end = judge_text.rfind("}")
+        if json_start < 0 or json_end <= json_start:
+            logger.warning("constraint_judge_non_json", agent=agent_name, text=judge_text[:200])
+            return
+        try:
+            verdict = json.loads(judge_text[json_start : json_end + 1])
+        except json.JSONDecodeError:
+            logger.warning("constraint_judge_invalid_json", agent=agent_name, text=judge_text[:200])
+            return
+
+        if not isinstance(verdict, dict) or not verdict.get("violated"):
+            return
+
+        raw_violations = verdict.get("violations") or []
+        violations = [str(v) for v in raw_violations if v] or ["constraints not met"]
+        violation_text = "\n".join(f"- {v}" for v in violations)
+
+        logger.info(
+            "constraint_violation_detected",
+            agent=agent_name,
+            violations=violations,
+        )
+        raise CorrectableError(
+            f"Output violates constraints: {'; '.join(violations)}",
+            feedback=(
+                "Your previous response violated these hard constraints:\n"
+                f"{violation_text}\n\n"
+                "Full constraint list (you MUST comply with ALL of them):\n"
+                f"{constraints}\n\n"
+                "Revise your response so that every constraint is satisfied."
+            ),
         )

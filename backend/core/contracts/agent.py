@@ -18,7 +18,6 @@ class AgentContract(BaseModel):
     purpose: str = ""
     model_tier: ModelTier = ModelTier.balanced
     system_prompt: str = ""
-    negative_prompt: str = ""
     constraints: str = ""
     clarification_rules: str = ""
     allowed_tools: list[str] = Field(default_factory=list)

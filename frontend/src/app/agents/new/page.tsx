@@ -28,7 +28,6 @@ export default function NewAgentPage() {
     name: "", description: "", purpose: "",
     provider: "anthropic", model_tier: "balanced",
     system_prompt: "",
-    negative_prompt: "",
     constraints: "",
     clarification_rules: "",
     temperature: 0, max_tokens: 4096,
@@ -113,16 +112,13 @@ export default function NewAgentPage() {
           <textarea value={form.system_prompt} onChange={(e) => update("system_prompt", e.target.value)} rows={5} placeholder="You are a sales manager agent. Your role is to..." className="w-full px-3 py-2 rounded-md text-sm" style={s} />
         </div>
 
-        {/* Negative Prompt */}
-        <div>
-          <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Negative Prompt — what NOT to do</label>
-          <textarea value={form.negative_prompt} onChange={(e) => update("negative_prompt", e.target.value)} rows={3} placeholder="Never promise discounts above 20%. Do not share internal financial data. Never respond with offensive content." className="w-full px-3 py-2 rounded-md text-sm" style={s} />
-        </div>
-
         {/* Constraints */}
         <div>
-          <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Constraints — hard limits</label>
-          <textarea value={form.constraints} onChange={(e) => update("constraints", e.target.value)} rows={3} placeholder="Maximum response length: 500 words. Always respond in the user's language. Always cite sources." className="w-full px-3 py-2 rounded-md text-sm" style={s} />
+          <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Constraints — hard rules (enforced)</label>
+          <textarea value={form.constraints} onChange={(e) => update("constraints", e.target.value)} rows={5} placeholder={"One rule per line. Examples:\n- Never promise discounts above 20%\n- Response must be under 500 words\n- Never mention competitors by name\n- Always respond in the user's language\n- Never share internal financial data"} className="w-full px-3 py-2 rounded-md text-sm" style={s} />
+          <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+            Every agent response is automatically checked against these rules by a fast LLM judge. Violations force a retry with the agent's max_retries budget.
+          </p>
         </div>
 
         {/* Clarification Rules */}

@@ -17,7 +17,6 @@ export default function EditAgentPage() {
   const [form, setForm] = useState({
     name: "", description: "", purpose: "", provider: "anthropic", model_tier: "balanced",
     system_prompt: "",
-    negative_prompt: "",
     constraints: "",
     clarification_rules: "",
     temperature: 0, timeout_seconds: 120, max_retries: 3, max_tokens: 4096,
@@ -36,7 +35,6 @@ export default function EditAgentPage() {
         provider: (a.provider as string) || "anthropic",
         model_tier: (a.model_tier as string) || "balanced",
         system_prompt: (a.system_prompt as string) || "",
-        negative_prompt: (a.negative_prompt as string) || "",
         constraints: (a.constraints as string) || "",
         clarification_rules: (a.clarification_rules as string) || "",
         temperature: (a.temperature as number) || 0,
@@ -126,13 +124,11 @@ export default function EditAgentPage() {
         </div>
 
         <div>
-          <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Negative Prompt — what NOT to do</label>
-          <textarea value={form.negative_prompt} onChange={(e) => update("negative_prompt", e.target.value)} rows={3} placeholder="Never promise discounts above 20%..." className="w-full px-3 py-2 rounded-md text-sm" style={inputStyle} />
-        </div>
-
-        <div>
-          <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Constraints — hard limits</label>
-          <textarea value={form.constraints} onChange={(e) => update("constraints", e.target.value)} rows={3} placeholder="Max response 500 words..." className="w-full px-3 py-2 rounded-md text-sm" style={inputStyle} />
+          <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Constraints — hard rules (enforced)</label>
+          <textarea value={form.constraints} onChange={(e) => update("constraints", e.target.value)} rows={5} placeholder={"One rule per line. Examples:\n- Never promise discounts above 20%\n- Response must be under 500 words\n- Never mention competitors by name"} className="w-full px-3 py-2 rounded-md text-sm" style={inputStyle} />
+          <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+            Every agent response is automatically checked against these rules. Violations force a retry.
+          </p>
         </div>
 
         <div>
