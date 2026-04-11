@@ -3,258 +3,377 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
-
-interface Provider {
-  id: string;
-  name: string;
-  models: Record<string, string>;
-}
+import BuilderChat from "@/components/BuilderChat";
+import ToolPicker from "@/components/ToolPicker";
+import KnowledgePicker from "@/components/KnowledgePicker";
 
 export default function NewAgentPage() {
   const router = useRouter();
-  const [providers, setProviders] = useState<Provider[]>([]);
   const [saving, setSaving] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showToolPicker, setShowToolPicker] = useState(false);
+  const [showKbPicker, setShowKbPicker] = useState(false);
+  const [availableModels, setAvailableModels] = useState<
+    Array<{ id: string; name: string; provider: string }>
+  >([]);
   const [form, setForm] = useState({
-    name: "",
-    description: "",
-    purpose: "",
-    provider: "anthropic",
-    model_tier: "balanced",
+    name: "", description: "", purpose: "",
+    provider: "anthropic", model_tier: "balanced",
+    model: "" as string, // explicit model id; empty = tier fallback
     system_prompt: "",
+    constraints: "",
+    clarification_rules: "",
     temperature: 0,
-    timeout_seconds: 120,
-    max_retries: 3,
-    max_tokens: 4096,
-    output_schema: "",
-    tools: [] as Array<{ name: string; description: string; url: string; method: string; headers: string; parameters: string }>,
-    knowledge_bases: [] as Array<{ name: string; type: string; source: string }>,
-    is_public: false,
-    tags: "",
+    max_tokens: "" as number | "", // empty = auto, use model max
+    tools: [] as Array<{
+      name: string;
+      description: string;
+      connection_id?: string | null;
+      connection_name?: string | null;
+    }>,
+    knowledge_bases: [] as Array<{
+      id?: string;
+      name: string;
+      description?: string;
+      file_count?: number;
+      // legacy fields kept for backwards compat
+      type?: string;
+      content?: string;
+    }>,
+    is_public: false, tags: "",
   });
 
+  function update(f: string, v: unknown) { setForm((p) => ({ ...p, [f]: v })); }
+
+  // Fetch models from every connected provider
   useEffect(() => {
-    api.listProviders().then((p) => setProviders(p as Provider[])).catch(() => {});
+    let cancelled = false;
+    const PROVIDERS = ["anthropic", "openai", "gemini", "mistral", "yandexgpt", "gigachat"];
+    async function run() {
+      const all: Array<{ id: string; name: string; provider: string }> = [];
+      for (const p of PROVIDERS) {
+        try {
+          const list = (await api.getProviderModels(p)) as Array<{
+            id: string; name: string; provider?: string;
+          }>;
+          if (Array.isArray(list)) {
+            all.push(...list.map((m) => ({ ...m, provider: m.provider || p })));
+          }
+        } catch {
+          // not connected — skip
+        }
+      }
+      if (!cancelled) {
+        setAvailableModels(all);
+        // NO auto-default — user must pick the model explicitly. If they ask
+        // the AI helper to create the agent, the AI will set model itself.
+      }
+    }
+    run();
+    return () => { cancelled = true; };
   }, []);
-
-  function updateField(field: string, value: unknown) {
-    setForm((prev) => ({ ...prev, [field]: value }));
-  }
-
-  function addTool() {
-    setForm((prev) => ({
-      ...prev,
-      tools: [...prev.tools, { name: "", description: "", url: "", method: "POST", headers: "", parameters: "" }],
-    }));
-  }
-
-  function removeTool(index: number) {
-    setForm((prev) => ({ ...prev, tools: prev.tools.filter((_, i) => i !== index) }));
-  }
-
-  function addKB() {
-    setForm((prev) => ({
-      ...prev,
-      knowledge_bases: [...prev.knowledge_bases, { name: "", type: "text", source: "" }],
-    }));
-  }
-
-  function removeKB(index: number) {
-    setForm((prev) => ({ ...prev, knowledge_bases: prev.knowledge_bases.filter((_, i) => i !== index) }));
-  }
 
   async function handleSave() {
     if (!form.name.trim()) return;
+    if (!form.model) {
+      alert("Выбери модель — поле Model обязательное.");
+      return;
+    }
     setSaving(true);
     try {
-      let schema = {};
-      if (form.output_schema.trim()) {
-        schema = JSON.parse(form.output_schema);
-      }
-      const parsedTools = form.tools.map((t) => ({
-        name: t.name,
-        description: t.description,
-        url: t.url,
-        method: t.method,
-        headers: t.headers ? JSON.parse(t.headers) : {},
-        parameters: t.parameters ? JSON.parse(t.parameters) : {},
-      }));
       await api.createAgent({
         ...form,
-        tools: parsedTools,
-        output_schema: schema,
+        tools: form.tools,
+        model: form.model,
+        max_tokens: form.max_tokens === "" ? null : form.max_tokens,
+        output_schema: {},
         tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
       });
       router.push("/agents");
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to save");
-    } finally {
-      setSaving(false);
-    }
+    } catch (e) { alert(e instanceof Error ? e.message : "Failed"); }
+    finally { setSaving(false); }
   }
 
-  const inputStyle = {
-    background: "var(--bg-secondary)",
-    border: "1px solid var(--border)",
-    color: "var(--text-primary)",
-  };
+  const s = { background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-primary)" };
 
   return (
-    <div className="max-w-3xl">
-      <div className="mb-8">
-        <h2 className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>Create Agent</h2>
-        <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>Configure your AI agent with tools and knowledge bases</p>
-      </div>
+    <div className="flex gap-6 -mr-6">
+    <div className="flex-1 min-w-0">
+    <div className="max-w-2xl mx-auto">
+      <h1 className="text-2xl font-semibold tracking-tight mb-6" style={{ color: "var(--text-primary)" }}>Create Agent</h1>
 
-      <div className="space-y-6">
-        {/* Basic Info */}
-        <section className="rounded-xl p-6" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
-          <h3 className="font-semibold mb-4" style={{ color: "var(--text-primary)" }}>Basic Info</h3>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>Name</label>
-              <input value={form.name} onChange={(e) => updateField("name", e.target.value)} placeholder="e.g. Invoice Processor" className="w-full px-3 py-2.5 rounded-lg text-sm" style={inputStyle} />
-            </div>
-            <div>
-              <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>Description</label>
-              <input value={form.description} onChange={(e) => updateField("description", e.target.value)} placeholder="What does this agent do?" className="w-full px-3 py-2.5 rounded-lg text-sm" style={inputStyle} />
-            </div>
-            <div>
-              <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>Purpose</label>
-              <input value={form.purpose} onChange={(e) => updateField("purpose", e.target.value)} placeholder="Why does this agent exist?" className="w-full px-3 py-2.5 rounded-lg text-sm" style={inputStyle} />
-            </div>
-            <div>
-              <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>Tags (comma-separated)</label>
-              <input value={form.tags} onChange={(e) => updateField("tags", e.target.value)} placeholder="finance, extraction, validation" className="w-full px-3 py-2.5 rounded-lg text-sm" style={inputStyle} />
-            </div>
+      <div className="space-y-5">
+        {/* Basic */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="col-span-2">
+            <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Name</label>
+            <input value={form.name} onChange={(e) => update("name", e.target.value)} placeholder="e.g. Sales Manager" className="w-full px-3 py-2 rounded-md text-sm" style={s} />
           </div>
-        </section>
+          <div className="col-span-2">
+            <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Description</label>
+            <input value={form.description} onChange={(e) => update("description", e.target.value)} placeholder="What this agent does" className="w-full px-3 py-2 rounded-md text-sm" style={s} />
+          </div>
+        </div>
 
-        {/* Model Config */}
-        <section className="rounded-xl p-6" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
-          <h3 className="font-semibold mb-4" style={{ color: "var(--text-primary)" }}>Model Configuration</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>Provider</label>
-              <select value={form.provider} onChange={(e) => updateField("provider", e.target.value)} className="w-full px-3 py-2.5 rounded-lg text-sm" style={inputStyle}>
-                {providers.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
+        {/* Model picker — every connected provider's models grouped */}
+        <div>
+          <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>
+            Model <span style={{ color: "#ee4444" }}>*</span>
+          </label>
+          <select
+            value={form.model}
+            onChange={(e) => {
+              const id = e.target.value;
+              update("model", id);
+              const picked = availableModels.find((m) => m.id === id);
+              if (picked) update("provider", picked.provider);
+            }}
+            className="w-full px-3 py-2 rounded-md text-sm"
+            style={{
+              ...s,
+              borderColor: form.model ? (s as { border?: string }).border?.split(" ")[2] : "#ee4444",
+            }}
+          >
+            {availableModels.length === 0 ? (
+              <option value="">No providers connected — go to Settings</option>
+            ) : (
+              <>
+                <option value="">— Выбери модель —</option>
+                {Object.entries(
+                  availableModels.reduce<Record<string, typeof availableModels>>((acc, m) => {
+                    (acc[m.provider] = acc[m.provider] || []).push(m);
+                    return acc;
+                  }, {}),
+                ).map(([provider, list]) => (
+                  <optgroup key={provider} label={provider.charAt(0).toUpperCase() + provider.slice(1)}>
+                    {list.map((m) => (
+                      <option key={m.id} value={m.id}>{m.name}</option>
+                    ))}
+                  </optgroup>
                 ))}
-                {providers.length === 0 && (
-                  <>
-                    <option value="anthropic">Anthropic</option>
-                    <option value="openai">OpenAI</option>
-                  </>
-                )}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>Model Tier</label>
-              <select value={form.model_tier} onChange={(e) => updateField("model_tier", e.target.value)} className="w-full px-3 py-2.5 rounded-lg text-sm" style={inputStyle}>
-                <option value="fast">Fast (cheap, simple tasks)</option>
-                <option value="balanced">Balanced (good default)</option>
-                <option value="powerful">Powerful (complex reasoning)</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>Temperature</label>
-              <input type="number" value={form.temperature} onChange={(e) => updateField("temperature", parseFloat(e.target.value))} min={0} max={2} step={0.1} className="w-full px-3 py-2.5 rounded-lg text-sm" style={inputStyle} />
-            </div>
-            <div>
-              <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>Max Tokens</label>
-              <input type="number" value={form.max_tokens} onChange={(e) => updateField("max_tokens", parseInt(e.target.value))} className="w-full px-3 py-2.5 rounded-lg text-sm" style={inputStyle} />
-            </div>
-          </div>
-        </section>
+              </>
+            )}
+          </select>
+          <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+            Обязательное поле. Если моделей нет — подключи провайдера в Settings.
+          </p>
+        </div>
 
         {/* System Prompt */}
-        <section className="rounded-xl p-6" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
-          <h3 className="font-semibold mb-4" style={{ color: "var(--text-primary)" }}>System Prompt</h3>
-          <textarea value={form.system_prompt} onChange={(e) => updateField("system_prompt", e.target.value)} rows={6} placeholder="You are a specialist agent that..." className="w-full px-3 py-2.5 rounded-lg text-sm font-mono" style={inputStyle} />
-        </section>
+        <div>
+          <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>System Prompt</label>
+          <textarea value={form.system_prompt} onChange={(e) => update("system_prompt", e.target.value)} rows={5} placeholder="You are a sales manager agent. Your role is to..." className="w-full px-3 py-2 rounded-md text-sm" style={s} />
+        </div>
 
-        {/* Tools */}
-        <section className="rounded-xl p-6" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold" style={{ color: "var(--text-primary)" }}>Tools</h3>
-            <button onClick={addTool} className="text-xs px-3 py-1.5 rounded-lg" style={{ background: "var(--bg-secondary)", color: "var(--accent)", border: "1px solid var(--border)" }}>
-              + Add Tool
+        {/* Constraints */}
+        <div>
+          <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Constraints — hard rules (enforced)</label>
+          <textarea value={form.constraints} onChange={(e) => update("constraints", e.target.value)} rows={5} placeholder={"One rule per line. Examples:\n- Never promise discounts above 20%\n- Response must be under 500 words\n- Never mention competitors by name\n- Always respond in the user's language\n- Never share internal financial data"} className="w-full px-3 py-2 rounded-md text-sm" style={s} />
+          <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+            Every agent response is automatically checked against these rules by a fast LLM judge. Violations force a retry with the agent's max_retries budget.
+          </p>
+        </div>
+
+        {/* Clarification Rules */}
+        <div>
+          <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Clarification Rules — when to ask instead of guessing</label>
+          <textarea value={form.clarification_rules} onChange={(e) => update("clarification_rules", e.target.value)} rows={3} placeholder="Ask when customer budget is unclear. Ask when request conflicts with policy. Ask before making any write action." className="w-full px-3 py-2 rounded-md text-sm" style={s} />
+        </div>
+
+        {/* Integrations */}
+        <div>
+          <div className="flex justify-between items-center mb-2">
+            <label className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>Integrations</label>
+            <button
+              onClick={() => setShowToolPicker(true)}
+              className="text-xs px-2 py-1 rounded"
+              style={{ color: "#0cce6b", border: "1px solid var(--border)" }}
+            >
+              + Add from library
             </button>
           </div>
-          {form.tools.length === 0 && (
-            <p className="text-xs" style={{ color: "var(--text-muted)" }}>No tools added. Add API integrations so the agent can interact with external systems (CRM, messengers, databases).</p>
+          {showToolPicker && (
+            <ToolPicker
+              selectedNames={form.tools.map((t) => t.name)}
+              onConfirm={(picked) => update("tools", picked)}
+              onClose={() => setShowToolPicker(false)}
+            />
           )}
-          {form.tools.map((tool, i) => (
-            <div key={i} className="rounded-lg p-4 mb-3" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
-              <div className="flex justify-between mb-3">
-                <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>Tool #{i + 1}</span>
-                <button onClick={() => removeTool(i)} className="text-xs" style={{ color: "var(--error)" }}>Remove</button>
-              </div>
-              <div className="grid grid-cols-2 gap-2 mb-2">
-                <input value={tool.name} onChange={(e) => { const t = [...form.tools]; t[i] = {...t[i], name: e.target.value}; updateField("tools", t); }} placeholder="Name (e.g. send_telegram)" className="px-3 py-2 rounded-md text-sm" style={inputStyle} />
-                <div className="flex gap-2">
-                  <select value={tool.method} onChange={(e) => { const t = [...form.tools]; t[i] = {...t[i], method: e.target.value}; updateField("tools", t); }} className="px-3 py-2 rounded-md text-sm w-24" style={inputStyle}>
-                    <option value="GET">GET</option>
-                    <option value="POST">POST</option>
-                    <option value="PUT">PUT</option>
-                    <option value="DELETE">DELETE</option>
-                  </select>
-                  <input value={tool.url} onChange={(e) => { const t = [...form.tools]; t[i] = {...t[i], url: e.target.value}; updateField("tools", t); }} placeholder="API URL (https://api.example.com/...)" className="flex-1 px-3 py-2 rounded-md text-sm" style={inputStyle} />
-                </div>
-              </div>
-              <input value={tool.description} onChange={(e) => { const t = [...form.tools]; t[i] = {...t[i], description: e.target.value}; updateField("tools", t); }} placeholder="Description for AI: what this tool does, when to use it" className="w-full px-3 py-2 rounded-md text-sm mb-2" style={inputStyle} />
-              <input value={tool.headers} onChange={(e) => { const t = [...form.tools]; t[i] = {...t[i], headers: e.target.value}; updateField("tools", t); }} placeholder='Headers JSON: {"Authorization": "Bearer token123", "Content-Type": "application/json"}' className="w-full px-3 py-2 rounded-md text-xs font-mono mb-2" style={inputStyle} />
-              <input value={tool.parameters} onChange={(e) => { const t = [...form.tools]; t[i] = {...t[i], parameters: e.target.value}; updateField("tools", t); }} placeholder='Parameters schema JSON: {"type":"object","properties":{"message":{"type":"string"},"chat_id":{"type":"string"}}}' className="w-full px-3 py-2 rounded-md text-xs font-mono" style={inputStyle} />
+          {form.tools.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {(() => {
+                const groups = new Map<
+                  string,
+                  { label: string; connectionId: string | null; tools: typeof form.tools }
+                >();
+                for (const t of form.tools) {
+                  const connId = t.connection_id || null;
+                  const key = connId || `orphan:${t.name}`;
+                  const label = t.connection_name || t.name;
+                  const existing = groups.get(key);
+                  if (existing) existing.tools.push(t);
+                  else groups.set(key, { label, connectionId: connId, tools: [t] });
+                }
+                return Array.from(groups.values()).map((group) => {
+                  const count = group.tools.length;
+                  const isIntegration = !!group.connectionId;
+                  return (
+                    <div
+                      key={group.label}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs"
+                      style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}
+                    >
+                      <span style={{ color: "var(--text-primary)" }}>{group.label}</span>
+                      {isIntegration && count > 1 && (
+                        <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                          {count} actions
+                        </span>
+                      )}
+                      <button
+                        onClick={() => {
+                          const namesToRemove = new Set(group.tools.map((t) => t.name));
+                          update("tools", form.tools.filter((t) => !namesToRemove.has(t.name)));
+                        }}
+                        className="text-[11px] leading-none"
+                        style={{ color: "var(--text-muted)" }}
+                        title="Remove integration"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  );
+                });
+              })()}
             </div>
-          ))}
-        </section>
+          ) : (
+            <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+              Нет подключённых интеграций. Нажми{" "}
+              <span style={{ color: "#0cce6b" }}>+ Add from library</span>, чтобы выбрать из своей
+              библиотеки. Новые интеграции создаются во{" "}
+              <a href="/tools" target="_blank" style={{ color: "var(--accent-light, #3291ff)", textDecoration: "underline" }}>
+                вкладке Integrations
+              </a>.
+            </p>
+          )}
+        </div>
 
         {/* Knowledge Bases */}
-        <section className="rounded-xl p-6" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold" style={{ color: "var(--text-primary)" }}>Knowledge Bases</h3>
-            <button onClick={addKB} className="text-xs px-3 py-1.5 rounded-lg" style={{ background: "var(--bg-secondary)", color: "var(--accent)", border: "1px solid var(--border)" }}>
-              + Add Knowledge Base
+        <div>
+          <div className="flex justify-between items-center mb-2">
+            <label className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>Knowledge Bases</label>
+            <button
+              onClick={() => setShowKbPicker(true)}
+              className="text-xs px-2 py-1 rounded"
+              style={{ color: "#0cce6b", border: "1px solid var(--border)" }}
+            >
+              + Add from library
             </button>
           </div>
-          {form.knowledge_bases.length === 0 && (
-            <p className="text-xs" style={{ color: "var(--text-muted)" }}>No knowledge bases. Connect documents for the agent to reference.</p>
+          {showKbPicker && (
+            <KnowledgePicker
+              selectedIds={form.knowledge_bases.map((kb) => kb.id || "").filter(Boolean)}
+              onConfirm={(picked) => update("knowledge_bases", picked)}
+              onClose={() => setShowKbPicker(false)}
+            />
           )}
-          {form.knowledge_bases.map((kb, i) => (
-            <div key={i} className="flex gap-2 mb-2">
-              <input value={kb.name} onChange={(e) => { const k = [...form.knowledge_bases]; k[i].name = e.target.value; updateField("knowledge_bases", k); }} placeholder="Name" className="flex-1 px-3 py-2 rounded-lg text-sm" style={inputStyle} />
-              <select value={kb.type} onChange={(e) => { const k = [...form.knowledge_bases]; k[i].type = e.target.value; updateField("knowledge_bases", k); }} className="px-3 py-2 rounded-lg text-sm" style={inputStyle}>
-                <option value="text">Text</option>
-                <option value="url">URL</option>
-                <option value="file">File</option>
-              </select>
-              <input value={kb.source} onChange={(e) => { const k = [...form.knowledge_bases]; k[i].source = e.target.value; updateField("knowledge_bases", k); }} placeholder="Source/content" className="flex-[2] px-3 py-2 rounded-lg text-sm" style={inputStyle} />
-              <button onClick={() => removeKB(i)} className="px-3 py-2 rounded-lg text-sm" style={{ color: "var(--error)" }}>✕</button>
+          {form.knowledge_bases.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {form.knowledge_bases.map((kb, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs"
+                  style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}
+                >
+                  <span>📚</span>
+                  <span style={{ color: "var(--text-primary)" }}>{kb.name}</span>
+                  <button
+                    onClick={() => update("knowledge_bases", form.knowledge_bases.filter((_, j) => j !== i))}
+                    className="text-[11px] leading-none"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
             </div>
-          ))}
-        </section>
+          ) : (
+            <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+              Нет подключённых баз знаний. Создавай и загружай файлы во{" "}
+              <a href="/knowledge" target="_blank" style={{ color: "var(--accent-light, #3291ff)", textDecoration: "underline" }}>
+                вкладке Knowledge
+              </a>.
+            </p>
+          )}
+        </div>
+
+        {/* Advanced */}
+        <button onClick={() => setShowAdvanced(!showAdvanced)} className="text-xs" style={{ color: "var(--text-muted)" }}>
+          {showAdvanced ? "Hide" : "Show"} advanced settings
+        </button>
+        {showAdvanced && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Temperature</label>
+              <input type="number" value={form.temperature} onChange={(e) => update("temperature", parseFloat(e.target.value))} min={0} max={2} step={0.1} className="w-full px-3 py-2 rounded-md text-sm" style={s} />
+            </div>
+            <div>
+              <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Max Tokens (optional)</label>
+              <input
+                type="number"
+                value={form.max_tokens}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  update("max_tokens", v === "" ? "" : parseInt(v) || 0);
+                }}
+                placeholder="Auto — use model maximum"
+                className="w-full px-3 py-2 rounded-md text-sm"
+                style={s}
+              />
+              <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+                Пусто — лимит модели. Укажи число для ограничения.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Sharing */}
-        <section className="rounded-xl p-6" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
-          <h3 className="font-semibold mb-4" style={{ color: "var(--text-primary)" }}>Sharing</h3>
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input type="checkbox" checked={form.is_public} onChange={(e) => updateField("is_public", e.target.checked)} className="w-4 h-4 rounded" />
-            <div>
-              <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>Make this agent public</p>
-              <p className="text-xs" style={{ color: "var(--text-muted)" }}>Other users can clone and use this agent</p>
-            </div>
-          </label>
-        </section>
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={form.is_public} onChange={(e) => update("is_public", e.target.checked)} />
+          <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Publish to agent library</span>
+        </label>
 
-        {/* Actions */}
-        <div className="flex gap-3 pt-2">
-          <button onClick={handleSave} disabled={saving || !form.name.trim()} className="px-6 py-2.5 rounded-lg text-sm font-medium text-white disabled:opacity-50" style={{ background: "var(--accent)" }}>
+        {/* Save */}
+        <div className="flex gap-2 pt-2">
+          <button
+            onClick={handleSave}
+            disabled={saving || !form.name.trim() || !form.model}
+            className="px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50"
+            style={{ background: "var(--text-primary)", color: "var(--bg-primary)" }}
+            title={!form.model ? "Выбери модель" : undefined}
+          >
             {saving ? "Creating..." : "Create Agent"}
           </button>
-          <button onClick={() => router.push("/agents")} className="px-6 py-2.5 rounded-lg text-sm font-medium" style={{ color: "var(--text-secondary)", border: "1px solid var(--border)" }}>
-            Cancel
-          </button>
+          <button onClick={() => router.push("/agents")} className="px-4 py-2 rounded-md text-sm" style={{ color: "var(--text-muted)", border: "1px solid var(--border)" }}>Cancel</button>
         </div>
       </div>
+    </div>
+    </div>
+    {/* Chat Helper — pinned to viewport right edge */}
+    <aside
+      className="w-80 shrink-0 sticky top-12 hidden lg:block -my-6 self-start h-[calc(100vh-48px)]"
+      style={{ borderLeft: "1px solid var(--border)" }}
+    >
+      <BuilderChat
+        contextType="agent_builder"
+        title="AI Assistant"
+        placeholder="Describe your agent..."
+        onEntityCreated={(e) => {
+          if (e.type === "agent") {
+            router.push(`/agents/${e.id}/edit`);
+          }
+        }}
+      />
+    </aside>
     </div>
   );
 }

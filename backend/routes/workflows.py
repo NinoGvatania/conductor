@@ -1,70 +1,97 @@
 import uuid
 
 import structlog
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import delete, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.contracts.workflow import WorkflowDefinition
-from backend.database import get_supabase_client
+from backend.database import get_db
+from backend.models import Workflow
 
 logger = structlog.get_logger()
 
 router = APIRouter(prefix="/api/workflows", tags=["workflows"])
 
 
+def _serialize(w: Workflow) -> dict:
+    return {
+        "id": str(w.id),
+        "name": w.name,
+        "version": w.version,
+        "definition_json": w.definition_json,
+        "created_at": w.created_at.isoformat() if w.created_at else None,
+    }
+
+
+@router.get("/library")
+async def get_workflow_library():
+    from backend.templates.workflow_library import WORKFLOW_TEMPLATES
+    return WORKFLOW_TEMPLATES
+
+
 @router.get("")
-async def list_workflows():
-    try:
-        client = get_supabase_client()
-        result = client.table("workflows").select("*").order("created_at", desc=True).execute()
-        return result.data
-    except Exception as e:
-        logger.warning("workflows_list_error", error=str(e))
-        return []
+async def list_workflows(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Workflow).order_by(Workflow.created_at.desc()))
+    return [_serialize(w) for w in result.scalars().all()]
 
 
 @router.post("")
-async def create_workflow(workflow: WorkflowDefinition):
-    client = get_supabase_client()
-    # Always generate a fresh UUID to avoid duplicate key errors
-    workflow_id = str(uuid.uuid4())
-    data = {
-        "id": workflow_id,
-        "name": workflow.name,
-        "version": workflow.version,
-        "definition_json": workflow.model_dump_json(),
-    }
-    try:
-        client.table("workflows").insert(data).execute()
-    except Exception as e:
-        logger.error("workflow_create_error", error=str(e))
-        raise HTTPException(status_code=500, detail=f"Failed to save workflow: {e}") from e
-    return {"id": workflow_id, "name": workflow.name, "status": "created"}
+async def create_workflow(workflow: WorkflowDefinition, db: AsyncSession = Depends(get_db)):
+    w = Workflow(
+        name=workflow.name,
+        version=workflow.version,
+        definition_json=workflow.model_dump_json(),
+    )
+    db.add(w)
+    await db.commit()
+    return {"id": str(w.id), "name": w.name, "status": "created"}
+
+
+@router.get("/{workflow_id}")
+async def get_workflow(workflow_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Workflow).where(Workflow.id == uuid.UUID(workflow_id)))
+    w = result.scalar_one_or_none()
+    if not w:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    return _serialize(w)
+
+
+@router.put("/{workflow_id}")
+async def update_workflow(workflow_id: str, workflow: WorkflowDefinition, db: AsyncSession = Depends(get_db)):
+    await db.execute(update(Workflow).where(Workflow.id == uuid.UUID(workflow_id)).values(
+        name=workflow.name,
+        version=workflow.version,
+        definition_json=workflow.model_dump_json(),
+    ))
+    await db.commit()
+    return {"status": "updated"}
+
+
+@router.delete("/{workflow_id}")
+async def delete_workflow(workflow_id: str, db: AsyncSession = Depends(get_db)):
+    await db.execute(delete(Workflow).where(Workflow.id == uuid.UUID(workflow_id)))
+    await db.commit()
+    return {"status": "deleted"}
 
 
 @router.post("/{workflow_id}/run")
-async def start_run(workflow_id: str):
-    client = get_supabase_client()
-    try:
-        result = (
-            client.table("workflows")
-            .select("definition_json")
-            .eq("id", workflow_id)
-            .single()
-            .execute()
-        )
-    except Exception as e:
-        raise HTTPException(status_code=404, detail="Workflow not found") from e
-
-    if not result.data:
+async def start_run(workflow_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Workflow).where(Workflow.id == uuid.UUID(workflow_id)))
+    w = result.scalar_one_or_none()
+    if not w:
         raise HTTPException(status_code=404, detail="Workflow not found")
 
-    workflow = WorkflowDefinition.model_validate_json(result.data["definition_json"])
+    workflow = WorkflowDefinition.model_validate_json(w.definition_json)
+    # See conversations.start_workflow — the embedded definition id is
+    # different from the DB row id, so force them equal before passing to
+    # the engine or checkpoint_store's FK will blow up.
+    workflow.id = str(w.id)
 
     from backend.core.engine.orchestrator import OrchestrationEngine
     engine = OrchestrationEngine()
-    run_id = str(uuid.uuid4())
     try:
-        run_state = await engine.start(workflow, input_data={}, run_id=run_id)
+        run_state = await engine.start(workflow, input_data={}, run_id=str(uuid.uuid4()))
         return run_state.model_dump()
     except Exception as e:
         logger.error("workflow_run_error", error=str(e))

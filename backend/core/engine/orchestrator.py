@@ -12,7 +12,7 @@ from backend.core.contracts.run import RunState, RunStatus, StepResult, StepStat
 from backend.core.contracts.workflow import NodeDefinition, NodeType, WorkflowDefinition
 from backend.core.engine.checkpoint import CheckpointStore
 from backend.core.guardrails.pipeline import GuardrailPipeline
-from backend.database import get_supabase_client
+from backend.database import async_session_factory
 from backend.core.providers.anthropic import AnthropicProvider
 from backend.core.providers.base import LLMRequest
 from backend.core.providers.model_router import ModelRouter
@@ -126,7 +126,15 @@ class OrchestrationEngine:
             logger.info("executing_node", node_id=node.id, node_type=node.type.value)
 
             if node.type == NodeType.agent:
-                step = await self._execute_agent_node(node, run_state)
+                step = await self._execute_agent_node(node, run_state, workflow)
+                # If agent needs approval, create a chat conversation
+                if step.status == StepStatus.waiting_approval:
+                    await self._notify_user_via_chat(node, step, run_state)
+                    run_state.record_step(step)
+                    run_state.status = RunStatus.paused
+                    run_state.pending_approval = {"node_id": node.id, "agent_name": node.agent_name}
+                    await self.checkpoint.save(run_state)
+                    return run_state
             elif node.type == NodeType.human:
                 step = await self._execute_human_node(node, run_state)
                 if step.status == StepStatus.waiting_approval:
@@ -177,7 +185,7 @@ class OrchestrationEngine:
         return run_state
 
     async def _execute_agent_node(
-        self, node: NodeDefinition, run_state: RunState
+        self, node: NodeDefinition, run_state: RunState, workflow: WorkflowDefinition | None = None
     ) -> StepResult:
         agent_name = node.agent_name or node.id
         agent_dict = BUILTIN_AGENTS.get(agent_name)
@@ -186,23 +194,42 @@ class OrchestrationEngine:
         # Check builtin agents first, then DB
         if not agent_dict:
             try:
-                client = get_supabase_client()
-                result = client.table("agents").select("*").eq("name", agent_name).execute()
-                if result.data:
-                    row = result.data[0]
-                    agent_dict = {
-                        "name": row["name"],
-                        "description": row.get("description", ""),
-                        "purpose": row.get("purpose", ""),
-                        "model_tier": row.get("model_tier", "balanced"),
-                        "system_prompt": row.get("system_prompt", ""),
-                        "output_schema": row.get("output_schema", {}),
-                        "temperature": float(row.get("temperature", 0)),
-                        "timeout_seconds": row.get("timeout_seconds", 120),
-                        "max_retries": row.get("max_retries", 3),
-                        "max_tokens": row.get("max_tokens", 4096),
-                    }
-                    agent_tools = row.get("tools", []) or []
+                from sqlalchemy import select as _select
+                from backend.models import AgentConfig, Tool
+
+                async with async_session_factory() as db:
+                    result = await db.execute(_select(AgentConfig).where(AgentConfig.name == agent_name))
+                    a = result.scalar_one_or_none()
+                    if a:
+                        agent_dict = {
+                            "name": a.name,
+                            "description": a.description,
+                            "purpose": a.purpose,
+                            "model_tier": a.model_tier,
+                            "system_prompt": a.system_prompt,
+                            "output_schema": a.output_schema or {},
+                            "temperature": float(a.temperature or 0),
+                            "timeout_seconds": a.timeout_seconds,
+                            "max_retries": a.max_retries,
+                            "max_tokens": a.max_tokens,
+                        }
+                        for t in a.tools or []:
+                            tool_name = t.get("name") if isinstance(t, dict) else None
+                            if tool_name:
+                                tr = await db.execute(_select(Tool).where(Tool.name == tool_name))
+                                tool = tr.scalar_one_or_none()
+                                if tool:
+                                    agent_tools.append({
+                                        "id": str(tool.id),
+                                        "name": tool.name,
+                                        "description": tool.description,
+                                        "url": tool.url,
+                                        "method": tool.method,
+                                        "headers": tool.headers,
+                                        "parameters": tool.parameters,
+                                        "body_template": tool.body_template,
+                                        "connection_id": str(tool.connection_id) if tool.connection_id else None,
+                                    })
             except Exception as e:
                 logger.warning("agent_db_lookup_failed", agent=agent_name, error=str(e))
 
@@ -215,7 +242,7 @@ class OrchestrationEngine:
             )
 
         agent_contract = AgentContract(**agent_dict)
-        task = self._build_task(node, run_state)
+        task = self._build_task(node, run_state, workflow)
         step = await self.agent_runner.run(
             agent_contract, task, run_state.intermediate_results, tools=agent_tools
         )
@@ -370,14 +397,42 @@ class OrchestrationEngine:
             output={"evaluated_node": target_node, "valid": True},
         )
 
-    def _build_task(self, node: NodeDefinition, run_state: RunState) -> str:
+    def _build_task(self, node: NodeDefinition, run_state: RunState, workflow: WorkflowDefinition | None = None) -> str:
         parts = []
-        # Use node config description if available
-        desc = node.config.get("description", "")
-        if desc:
-            parts.append(f"Task: {desc}")
+
+        # Workflow-level context
+        if workflow and workflow.description:
+            parts.append(f"You are part of workflow '{workflow.name}': {workflow.description}")
+
+        # Node-level description (purpose in the workflow)
+        node_desc = getattr(node, "description", "") or node.config.get("description", "")
+        if node_desc:
+            parts.append(f"Your role in this step: {node_desc}")
         else:
             parts.append(f"Process data for step '{node.id}'.")
+
+        # Incoming edge context — why previous step passes data to this one
+        if workflow and workflow.edge_descriptions:
+            incoming = []
+            for other in workflow.nodes:
+                if node.id in (other.next_nodes or []):
+                    edge_key = f"{other.id}->{node.id}"
+                    edge_desc = workflow.edge_descriptions.get(edge_key)
+                    if edge_desc:
+                        incoming.append(f"- From '{other.id}': {edge_desc}")
+            if incoming:
+                parts.append("Why you received data from previous steps:\n" + "\n".join(incoming))
+
+        # Outgoing edge context — what comes next
+        if workflow and workflow.edge_descriptions and node.next_nodes:
+            outgoing = []
+            for next_id in node.next_nodes:
+                edge_key = f"{node.id}->{next_id}"
+                edge_desc = workflow.edge_descriptions.get(edge_key)
+                if edge_desc:
+                    outgoing.append(f"- To '{next_id}': {edge_desc}")
+            if outgoing:
+                parts.append("Your output will be used for:\n" + "\n".join(outgoing))
 
         if run_state.input_data:
             parts.append(f"Input data: {json.dumps(run_state.input_data, ensure_ascii=False, default=str)}")
@@ -393,3 +448,46 @@ class OrchestrationEngine:
                 parts.append(f"Configuration: {json.dumps(config_info, ensure_ascii=False, default=str)}")
 
         return "\n\n".join(parts)
+
+    async def _notify_user_via_chat(
+        self, node: NodeDefinition, step: StepResult, run_state: RunState
+    ) -> None:
+        """Agent creates a conversation to ask the user for approval."""
+        try:
+            from backend.models import Conversation, Message
+
+            agent_name = step.agent_name or node.agent_name or node.id
+            msg_content = (
+                f"Hi, I'm the **{agent_name}** agent working on run `{run_state.run_id[:8]}`.\n\n"
+                f"I need your input on step **{node.id}**.\n\n"
+            )
+            if step.error:
+                msg_content += f"**Issue:** {step.error}\n\n"
+            msg_content += "Please reply with your decision — approve, reject, or give me guidance."
+
+            async with async_session_factory() as db:
+                conv = Conversation(
+                    title=f"{agent_name}: needs approval",
+                    initiated_by="agent",
+                    agent_name=agent_name,
+                )
+                db.add(conv)
+                await db.flush()
+
+                msg = Message(
+                    conversation_id=conv.id,
+                    role="agent",
+                    content=msg_content,
+                    message_metadata={
+                        "agent_name": agent_name,
+                        "run_id": str(run_state.run_id),
+                        "node_id": node.id,
+                        "type": "approval_request",
+                    },
+                )
+                db.add(msg)
+                await db.commit()
+
+            logger.info("agent_chat_created", agent=agent_name)
+        except Exception as e:
+            logger.warning("agent_chat_failed", error=str(e))

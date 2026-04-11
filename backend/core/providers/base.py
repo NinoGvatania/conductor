@@ -11,7 +11,9 @@ class LLMRequest(BaseModel):
     tools: list[dict[str, Any]] = Field(default_factory=list)
     output_schema: dict[str, Any] | None = None
     temperature: float = 0.0
-    max_tokens: int = 4096
+    # None means "use the provider's default for this model" — the provider
+    # substitutes the model's maximum output capacity at request time.
+    max_tokens: int | None = None
 
 
 class LLMResponse(BaseModel):

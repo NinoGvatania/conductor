@@ -62,7 +62,7 @@ export default function AgentDetailPage() {
     ["Provider", agent.provider || "anthropic"],
     ["Model Tier", agent.model_tier],
     ["Temperature", String(agent.temperature ?? 0)],
-    ["Max Tokens", String(agent.max_tokens ?? 4096)],
+    ["Max Tokens", String(agent.max_tokens ?? 32000)],
     ["Timeout", `${agent.timeout_seconds ?? 120}s`],
     ["Max Retries", String(agent.max_retries ?? 3)],
     ["Type", agent.is_builtin ? "Built-in" : "Custom"],

@@ -16,9 +16,13 @@ class StepResult(BaseModel):
     node_id: str
     status: StepStatus = StepStatus.pending
     agent_name: str | None = None
+    provider: str | None = None
+    model: str | None = None
     output: Any = None
     error: str | None = None
     tokens_used: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
     cost_usd: float = 0.0
     latency_ms: float = 0.0
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)

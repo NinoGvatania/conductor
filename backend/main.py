@@ -1,8 +1,24 @@
+from contextlib import asynccontextmanager
+
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.routes import agents, approvals, chat, runs, workflows
+from backend.database import init_db
+from backend.routes import (
+    agents,
+    auth,
+    builders,
+    connections,
+    conversations,
+    files,
+    knowledge_bases,
+    llm_providers,
+    projects,
+    runs,
+    tools,
+    workflows,
+)
 
 structlog.configure(
     processors=[
@@ -11,10 +27,25 @@ structlog.configure(
     ]
 )
 
+logger = structlog.get_logger()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("agentflow_starting")
+    try:
+        await init_db()
+        logger.info("database_initialized")
+    except Exception as e:
+        logger.warning("db_init_failed", error=str(e))
+    yield
+
+
 app = FastAPI(
     title="AgentFlow",
-    description="Managed AI Workforce Platform",
-    version="0.1.0",
+    description="AI Workforce Platform",
+    version="0.3.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -25,26 +56,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(chat.router)
+app.include_router(auth.router)
+app.include_router(projects.router)
+app.include_router(conversations.router)
+app.include_router(builders.router)
+app.include_router(agents.router)
+app.include_router(connections.router)
+app.include_router(tools.router)
+app.include_router(knowledge_bases.router)
 app.include_router(workflows.router)
 app.include_router(runs.router)
-app.include_router(approvals.router)
-app.include_router(agents.router)
+app.include_router(llm_providers.router)
+app.include_router(files.router)
 
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok"}
-
-
-@app.on_event("startup")
-async def startup():
-    logger = structlog.get_logger()
-    logger.info("agentflow_starting")
-    try:
-        from backend.database import get_supabase_client
-
-        client = get_supabase_client()
-        logger.info("supabase_connected")
-    except Exception as e:
-        logger.warning("supabase_connection_failed", error=str(e))
+    return {"status": "ok", "version": "0.3.0"}

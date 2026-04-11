@@ -4,9 +4,9 @@ from typing import Any
 
 import structlog
 
-from backend.config import settings
 from backend.core.contracts.errors import RetriableError
 from backend.core.providers.base import LLMProvider, LLMRequest, LLMResponse
+from backend.core.providers.key_store import get_api_key
 
 logger = structlog.get_logger()
 
@@ -19,11 +19,22 @@ MODEL_MAP: dict[str, str] = {
 
 class OpenAIProvider(LLMProvider):
     def __init__(self, api_key: str | None = None) -> None:
-        try:
-            import openai
-        except ImportError:
-            raise ImportError("Install openai: pip install openai")
-        self.client = openai.AsyncOpenAI(api_key=api_key or settings.OPENAI_API_KEY)
+        self._api_key = api_key
+        self._client = None
+
+    async def _get_client(self):
+        if self._client is None:
+            try:
+                import openai
+            except ImportError:
+                raise ImportError("Install openai: pip install openai")
+            key = self._api_key
+            if not key:
+                key = await get_api_key("openai")
+            if not key:
+                raise ValueError("OpenAI API key not configured. Go to Settings → OpenAI → Connect.")
+            self._client = openai.AsyncOpenAI(api_key=key)
+        return self._client
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
         import openai
@@ -34,10 +45,15 @@ class OpenAIProvider(LLMProvider):
             messages.append({"role": "system", "content": request.system_prompt})
         messages.extend(request.messages)
 
+        # OpenAI chat models cap output at ~16k tokens (gpt-4o: 16384). If
+        # the caller passed None ("use model max"), default to 16384. If a
+        # specific value was requested, clip it to the ceiling.
+        effective_max_tokens = min(request.max_tokens or 16384, 16384)
+
         kwargs: dict[str, Any] = {
             "model": request.model,
             "messages": messages,
-            "max_tokens": request.max_tokens,
+            "max_tokens": effective_max_tokens,
             "temperature": request.temperature,
         }
 
@@ -45,7 +61,8 @@ class OpenAIProvider(LLMProvider):
             kwargs["response_format"] = {"type": "json_object"}
 
         try:
-            response = await self.client.chat.completions.create(**kwargs)
+            client = await self._get_client()
+            response = await client.chat.completions.create(**kwargs)
         except openai.RateLimitError as e:
             raise RetriableError(str(e), reason="rate_limit") from e
         except openai.APITimeoutError as e:
@@ -83,7 +100,8 @@ class OpenAIProvider(LLMProvider):
 
     async def health_check(self) -> bool:
         try:
-            await self.client.chat.completions.create(
+            client = await self._get_client()
+            await client.chat.completions.create(
                 model=MODEL_MAP["fast"],
                 max_tokens=10,
                 messages=[{"role": "user", "content": "ping"}],
