@@ -6,31 +6,23 @@ import { api } from "@/lib/api";
 import BuilderChat from "@/components/BuilderChat";
 import ToolPicker from "@/components/ToolPicker";
 
-interface CatalogProvider { id: string; name: string; models: Array<{ id: string; name: string; tier: string }>; }
-
-const ALL_MODELS = [
-  { provider: "anthropic", id: "claude-haiku-4-5-20251001", name: "Claude Haiku", tier: "fast" },
-  { provider: "anthropic", id: "claude-sonnet-4-6", name: "Claude Sonnet", tier: "balanced" },
-  { provider: "anthropic", id: "claude-opus-4-6", name: "Claude Opus", tier: "powerful" },
-  { provider: "openai", id: "gpt-4o-mini", name: "GPT-4o Mini", tier: "fast" },
-  { provider: "openai", id: "gpt-4o", name: "GPT-4o", tier: "balanced" },
-  { provider: "openai", id: "o3", name: "o3", tier: "powerful" },
-  { provider: "gemini", id: "gemini-2.0-flash", name: "Gemini Flash", tier: "fast" },
-  { provider: "gemini", id: "gemini-2.5-pro", name: "Gemini Pro", tier: "balanced" },
-];
-
 export default function NewAgentPage() {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showToolPicker, setShowToolPicker] = useState(false);
+  const [availableModels, setAvailableModels] = useState<
+    Array<{ id: string; name: string; provider: string }>
+  >([]);
   const [form, setForm] = useState({
     name: "", description: "", purpose: "",
     provider: "anthropic", model_tier: "balanced",
+    model: "" as string, // explicit model id; empty = tier fallback
     system_prompt: "",
     constraints: "",
     clarification_rules: "",
-    temperature: 0, max_tokens: 32000,
+    temperature: 0,
+    max_tokens: "" as number | "", // empty = auto, use model max
     tools: [] as Array<{ name: string; description: string; url: string; method: string; headers: string; parameters: string }>,
     knowledge_bases: [] as Array<{ name: string; type: string; content: string }>,
     is_public: false, tags: "",
@@ -38,7 +30,37 @@ export default function NewAgentPage() {
 
   function update(f: string, v: unknown) { setForm((p) => ({ ...p, [f]: v })); }
 
-  const filteredModels = ALL_MODELS.filter((m) => m.provider === form.provider);
+  // Fetch models from every connected provider
+  useEffect(() => {
+    let cancelled = false;
+    const PROVIDERS = ["anthropic", "openai", "gemini", "mistral", "yandexgpt", "gigachat"];
+    async function run() {
+      const all: Array<{ id: string; name: string; provider: string }> = [];
+      for (const p of PROVIDERS) {
+        try {
+          const list = (await api.getProviderModels(p)) as Array<{
+            id: string; name: string; provider?: string;
+          }>;
+          if (Array.isArray(list)) {
+            all.push(...list.map((m) => ({ ...m, provider: m.provider || p })));
+          }
+        } catch {
+          // not connected — skip
+        }
+      }
+      if (!cancelled) {
+        setAvailableModels(all);
+        // Default-select the first model if form.model is empty
+        if (all.length > 0 && !form.model) {
+          update("model", all[0].id);
+          update("provider", all[0].provider);
+        }
+      }
+    }
+    run();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleSave() {
     if (!form.name.trim()) return;
@@ -50,7 +72,10 @@ export default function NewAgentPage() {
         parameters: t.parameters ? JSON.parse(t.parameters) : {},
       }));
       await api.createAgent({
-        ...form, tools: parsedTools,
+        ...form,
+        tools: parsedTools,
+        model: form.model || null,
+        max_tokens: form.max_tokens === "" ? null : form.max_tokens,
         output_schema: {},
         tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
       });
@@ -79,31 +104,40 @@ export default function NewAgentPage() {
           </div>
         </div>
 
-        {/* Model */}
+        {/* Model picker — every connected provider's models grouped */}
         <div>
           <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Model</label>
-          <div className="grid grid-cols-2 gap-2 mb-2">
-            {["anthropic", "openai", "gemini"].map((p) => (
-              <button key={p} onClick={() => update("provider", p)} className="px-3 py-1.5 rounded-md text-xs font-medium capitalize" style={{
-                background: form.provider === p ? "var(--bg-hover)" : "var(--bg-card)",
-                border: `1px solid ${form.provider === p ? "var(--text-primary)" : "var(--border)"}`,
-                color: form.provider === p ? "var(--text-primary)" : "var(--text-muted)",
-              }}>
-                {p}
-              </button>
-            ))}
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            {filteredModels.map((m) => (
-              <button key={m.id} onClick={() => update("model_tier", m.tier)} className="px-3 py-2 rounded-md text-left" style={{
-                background: form.model_tier === m.tier ? "var(--bg-hover)" : "var(--bg-card)",
-                border: `1px solid ${form.model_tier === m.tier ? "var(--text-primary)" : "var(--border)"}`,
-              }}>
-                <div className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>{m.name}</div>
-                <div className="text-[10px]" style={{ color: "var(--text-muted)" }}>{m.tier}</div>
-              </button>
-            ))}
-          </div>
+          <select
+            value={form.model}
+            onChange={(e) => {
+              const id = e.target.value;
+              update("model", id);
+              const picked = availableModels.find((m) => m.id === id);
+              if (picked) update("provider", picked.provider);
+            }}
+            className="w-full px-3 py-2 rounded-md text-sm"
+            style={s}
+          >
+            {availableModels.length === 0 ? (
+              <option value="">No providers connected — go to Settings</option>
+            ) : (
+              Object.entries(
+                availableModels.reduce<Record<string, typeof availableModels>>((acc, m) => {
+                  (acc[m.provider] = acc[m.provider] || []).push(m);
+                  return acc;
+                }, {}),
+              ).map(([provider, list]) => (
+                <optgroup key={provider} label={provider.charAt(0).toUpperCase() + provider.slice(1)}>
+                  {list.map((m) => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                </optgroup>
+              ))
+            )}
+          </select>
+          <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+            Подключи больше провайдеров в Settings, чтобы появились модели в списке.
+          </p>
         </div>
 
         {/* System Prompt */}
@@ -232,8 +266,21 @@ export default function NewAgentPage() {
               <input type="number" value={form.temperature} onChange={(e) => update("temperature", parseFloat(e.target.value))} min={0} max={2} step={0.1} className="w-full px-3 py-2 rounded-md text-sm" style={s} />
             </div>
             <div>
-              <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Max Tokens</label>
-              <input type="number" value={form.max_tokens} onChange={(e) => update("max_tokens", parseInt(e.target.value))} className="w-full px-3 py-2 rounded-md text-sm" style={s} />
+              <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Max Tokens (optional)</label>
+              <input
+                type="number"
+                value={form.max_tokens}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  update("max_tokens", v === "" ? "" : parseInt(v) || 0);
+                }}
+                placeholder="Auto — use model maximum"
+                className="w-full px-3 py-2 rounded-md text-sm"
+                style={s}
+              />
+              <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+                Пусто — лимит модели. Укажи число для ограничения.
+              </p>
             </div>
           </div>
         )}

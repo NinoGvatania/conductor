@@ -36,6 +36,7 @@ class AgentCreate(BaseModel):
     description: str = ""
     purpose: str = ""
     model_tier: str = "balanced"
+    model: str | None = None
     provider: str = "anthropic"
     system_prompt: str = ""
     constraints: str = ""
@@ -44,7 +45,7 @@ class AgentCreate(BaseModel):
     temperature: float = 0.0
     timeout_seconds: int = 120
     max_retries: int = 3
-    max_tokens: int = 32000
+    max_tokens: int | None = None
     tools: list[dict[str, Any]] = Field(default_factory=list)
     knowledge_bases: list[dict[str, Any]] = Field(default_factory=list)
     is_public: bool = False
@@ -57,6 +58,7 @@ class AgentUpdate(BaseModel):
     description: str | None = None
     purpose: str | None = None
     model_tier: str | None = None
+    model: str | None = None
     provider: str | None = None
     system_prompt: str | None = None
     constraints: str | None = None
@@ -79,6 +81,7 @@ def _serialize(a: AgentConfig) -> dict:
         "description": a.description,
         "purpose": a.purpose,
         "model_tier": a.model_tier,
+        "model": a.model,
         "provider": a.provider,
         "system_prompt": a.system_prompt,
         "constraints": a.constraints or "",
@@ -133,6 +136,7 @@ async def create_agent(agent: AgentCreate, db: AsyncSession = Depends(get_db)):
         description=agent.description,
         purpose=agent.purpose,
         model_tier=agent.model_tier,
+        model=agent.model,
         provider=agent.provider,
         system_prompt=agent.system_prompt,
         constraints=agent.constraints,

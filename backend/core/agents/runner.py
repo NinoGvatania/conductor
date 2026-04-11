@@ -20,6 +20,29 @@ from backend.core.tools.executor import execute_api_tool, tools_to_claude_format
 
 logger = structlog.get_logger()
 
+def _infer_provider_from_model(model_id: str) -> str:
+    """Guess the provider from a model id string.
+
+    Used by the agent runner when agent.model is set explicitly (no tier)
+    so we can pick the right provider class without a separate provider
+    field round-trip. Falls back to 'anthropic' if nothing matches.
+    """
+    m = model_id.lower()
+    if m.startswith(("claude-", "claude.")) or "claude" in m:
+        return "anthropic"
+    if m.startswith(("gpt-", "o1", "o3", "o4", "chatgpt")):
+        return "openai"
+    if m.startswith("gemini"):
+        return "gemini"
+    if m.startswith("mistral"):
+        return "mistral"
+    if "gigachat" in m:
+        return "gigachat"
+    if "yandexgpt" in m or m.startswith("gpt://") or "foundationModels" in m:
+        return "yandexgpt"
+    return "anthropic"
+
+
 CONSTRAINT_JUDGE_SYSTEM_PROMPT = (
     "You are a strict compliance checker for AI agent outputs. "
     "Given a set of CONSTRAINTS (hard rules the agent must follow) and an OUTPUT "
@@ -49,7 +72,23 @@ class AgentRunner:
     ) -> StepResult:
         context = context or {}
         tools = tools or []
-        model = self.model_router.resolve(agent_contract.model_tier)
+
+        # Resolve effective model + provider for this run. If the agent has an
+        # explicit `model` field set, it takes priority — we infer the right
+        # provider from the model id (claude-* → anthropic, gpt-*/o3 → openai,
+        # etc) and instantiate a provider for this run. Legacy agents without
+        # an explicit model fall back to tier-based resolution on whatever
+        # default provider this runner was constructed with.
+        if agent_contract.model:
+            model = agent_contract.model
+            inferred_provider_name = _infer_provider_from_model(model)
+            run_provider: LLMProvider = ModelRouter.get_provider(inferred_provider_name)
+            run_provider_name = inferred_provider_name
+        else:
+            model = self.model_router.resolve(agent_contract.model_tier)
+            run_provider = self.provider
+            run_provider_name = self.model_router.provider_name
+
         retries = 0
         last_error: str | None = None
         feedback: str = ""
@@ -94,7 +133,7 @@ class AgentRunner:
                     request.output_schema = agent_contract.output_schema
 
                 response = await asyncio.wait_for(
-                    self.provider.complete(request),
+                    run_provider.complete(request),
                     timeout=agent_contract.timeout_seconds,
                 )
 
@@ -167,7 +206,7 @@ class AgentRunner:
                     node_id="",
                     status=StepStatus.completed,
                     agent_name=agent_contract.name,
-                    provider=self.model_router.provider_name,
+                    provider=run_provider_name,
                     model=response.model or model,
                     output=final_output,
                     tokens_used=response.input_tokens + response.output_tokens,

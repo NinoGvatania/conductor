@@ -18,6 +18,28 @@ MODEL_MAP: dict[str, str] = {
     "powerful": "claude-opus-4-6",
 }
 
+# Maximum output tokens per model family. Used when LLMRequest.max_tokens is
+# None ("use the model's default cap"). All recent Claude 4.x models accept
+# 32000 output tokens; older ones are lower. If the model isn't listed we
+# fall back to 32000 which the API will reject if too high.
+ANTHROPIC_MODEL_MAX_OUTPUT: dict[str, int] = {
+    "claude-haiku-4-5-20251001": 32000,
+    "claude-sonnet-4-6": 32000,
+    "claude-opus-4-6": 32000,
+    "claude-sonnet-4-5-20250929": 32000,
+    "claude-sonnet-4-20250514": 32000,
+    "claude-opus-4-1-20250805": 32000,
+    "claude-opus-4-5-20251101": 32000,
+    "claude-haiku-3-5": 8192,
+    "claude-3-5-sonnet-20241022": 8192,
+    "claude-3-5-haiku-20241022": 8192,
+    "claude-3-opus-20240229": 4096,
+}
+
+
+def _default_max_tokens(model: str) -> int:
+    return ANTHROPIC_MODEL_MAX_OUTPUT.get(model, 32000)
+
 
 class AnthropicProvider(LLMProvider):
     def __init__(self, api_key: str | None = None) -> None:
@@ -57,9 +79,12 @@ class AnthropicProvider(LLMProvider):
     async def _do_complete(self, request: LLMRequest) -> LLMResponse:
         start = time.monotonic()
 
+        # If caller didn't specify max_tokens, use the model's natural cap
+        effective_max_tokens = request.max_tokens or _default_max_tokens(request.model)
+
         kwargs: dict[str, Any] = {
             "model": request.model,
-            "max_tokens": request.max_tokens,
+            "max_tokens": effective_max_tokens,
             "temperature": request.temperature,
             "messages": request.messages,
         }
