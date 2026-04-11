@@ -99,7 +99,7 @@ export default function NewAgentPage() {
   return (
     <div className="flex gap-6 -mr-6">
     <div className="flex-1 min-w-0">
-    <div className="max-w-2xl">
+    <div className="max-w-2xl mx-auto">
       <h1 className="text-2xl font-semibold tracking-tight mb-6" style={{ color: "var(--text-primary)" }}>Create Agent</h1>
 
       <div className="space-y-5">

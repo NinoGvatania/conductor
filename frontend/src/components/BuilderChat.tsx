@@ -192,8 +192,8 @@ export default function BuilderChat({
               : "Describe your process — I'll build the workflow for you."}
           </p>
         )}
-        {messages.map((m) => (
-          <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+        {messages.map((m, i) => (
+          <div key={m.id && m.id !== "None" ? m.id : `msg-${i}`} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
             <div
               className="max-w-[90%] px-3 py-2 rounded-xl text-xs leading-relaxed whitespace-pre-wrap"
               style={{

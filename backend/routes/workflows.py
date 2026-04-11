@@ -83,6 +83,10 @@ async def start_run(workflow_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Workflow not found")
 
     workflow = WorkflowDefinition.model_validate_json(w.definition_json)
+    # See conversations.start_workflow — the embedded definition id is
+    # different from the DB row id, so force them equal before passing to
+    # the engine or checkpoint_store's FK will blow up.
+    workflow.id = str(w.id)
 
     from backend.core.engine.orchestrator import OrchestrationEngine
     engine = OrchestrationEngine()
