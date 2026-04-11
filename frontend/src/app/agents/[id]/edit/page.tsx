@@ -116,8 +116,8 @@ export default function EditAgentPage() {
   const inputStyle = { background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-primary)" };
 
   return (
-    <div className="flex gap-6">
-      <div className="flex-1 max-w-2xl">
+    <div className="flex gap-6 -mr-6">
+      <div className="flex-1 min-w-0 max-w-2xl">
       <Link href={`/agents/${agentId}`} className="text-xs mb-2 inline-block" style={{ color: "var(--text-muted)" }}>← Back</Link>
       <h1 className="text-2xl font-semibold tracking-tight mb-6" style={{ color: "var(--text-primary)" }}>Edit Agent</h1>
 
@@ -278,7 +278,10 @@ export default function EditAgentPage() {
         </div>
       </div>
       </div>
-      <div className="w-80 h-[calc(100vh-120px)] sticky top-20 hidden lg:block">
+      <aside
+        className="w-80 shrink-0 sticky top-12 hidden lg:block -my-6 self-start h-[calc(100vh-48px)]"
+        style={{ borderLeft: "1px solid var(--border)", background: "var(--bg-primary)" }}
+      >
         <BuilderChat
           contextType="agent_builder"
           contextId={agentId}
@@ -290,7 +293,7 @@ export default function EditAgentPage() {
             }
           }}
         />
-      </div>
+      </aside>
     </div>
   );
 }

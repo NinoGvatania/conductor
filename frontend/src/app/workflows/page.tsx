@@ -45,8 +45,8 @@ export default function WorkflowsPage() {
   }
 
   return (
-    <div className="flex gap-6">
-      <div className="flex-1 min-w-0">
+    <div className="flex gap-6 -mr-6">
+      <div className="flex-1 min-w-0 max-w-4xl">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight" style={{ color: "var(--text-primary)" }}>Workflows</h1>
@@ -125,7 +125,10 @@ export default function WorkflowsPage() {
         </div>
       )}
       </div>
-      <div className="w-80 h-[calc(100vh-120px)] sticky top-20 hidden lg:block">
+      <aside
+        className="w-80 shrink-0 sticky top-12 hidden lg:block -my-6 self-start h-[calc(100vh-48px)]"
+        style={{ borderLeft: "1px solid var(--border)", background: "var(--bg-primary)" }}
+      >
         <BuilderChat
           contextType="workflow_builder"
           title="Design Workflow with AI"
@@ -134,7 +137,7 @@ export default function WorkflowsPage() {
             if (entity.type === "workflow") refreshWorkflows();
           }}
         />
-      </div>
+      </aside>
     </div>
   );
 }

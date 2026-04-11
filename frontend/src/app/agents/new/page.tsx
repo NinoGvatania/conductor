@@ -87,8 +87,8 @@ export default function NewAgentPage() {
   const s = { background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-primary)" };
 
   return (
-    <div className="flex gap-6">
-    <div className="flex-1 max-w-2xl">
+    <div className="flex gap-6 -mr-6">
+    <div className="flex-1 min-w-0 max-w-2xl">
       <h1 className="text-2xl font-semibold tracking-tight mb-6" style={{ color: "var(--text-primary)" }}>Create Agent</h1>
 
       <div className="space-y-5">
@@ -300,8 +300,11 @@ export default function NewAgentPage() {
         </div>
       </div>
     </div>
-    {/* Chat Helper */}
-    <div className="w-80 h-[calc(100vh-120px)] sticky top-20 hidden lg:block">
+    {/* Chat Helper — pinned to viewport right edge */}
+    <aside
+      className="w-80 shrink-0 sticky top-12 hidden lg:block -my-6 self-start h-[calc(100vh-48px)]"
+      style={{ borderLeft: "1px solid var(--border)", background: "var(--bg-primary)" }}
+    >
       <BuilderChat
         contextType="agent_builder"
         title="AI Assistant"
@@ -312,7 +315,7 @@ export default function NewAgentPage() {
           }
         }}
       />
-    </div>
+    </aside>
     </div>
   );
 }
