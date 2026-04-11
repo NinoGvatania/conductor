@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.core.providers.base import LLMRequest
 from backend.core.providers.model_router import ModelRouter
 from backend.database import get_db
-from backend.models import AgentConfig, Conversation, Message, Workflow
+from backend.models import AgentConfig, Conversation, Message, Tool, Workflow
 
 logger = structlog.get_logger()
 
@@ -45,10 +45,17 @@ When the user describes what they need:
 4. Always write `constraints` as checkable rules, one per line — they are enforced by automatic post-validation, so vague rules will not work.
 5. Respond in the user's language after the tool call. The tool call itself uses English field names.
 
+## Tools / Integrations
+
+You CAN attach API tools from the user's library to an agent. Pass a `tools` array with tool names — the backend resolves each name against the Tool library (shown in the context block as "Available tools"). Example: if the user has a tool named `send_telegram_message`, calling `update_agent(id=..., tools=["send_telegram_message"])` attaches it. If the user asks to add an integration that DOES NOT exist in the available tools list, tell them to first create it under the Integrations tab — don't fabricate tool names.
+
 Example flow:
 User: "Сделай агента поддержки клиентов на русском"
 You: (call create_agent with name=customer_support, description="...", system_prompt="Ты — дружелюбный агент поддержки...", constraints="- Отвечать только на русском\\n- Не обещать того что не гарантировано\\n- Ответ ≤ 300 слов", model_tier="fast", provider="anthropic")
-Then: "✓ Готово, создал агента customer_support. Можете открыть его в списке слева и настроить детали."
+Then: "✓ Готово, создал агента customer_support."
+
+User: "Добавь ему интеграцию с телеграм"
+You: (check the Available tools list in the context. If `send_telegram_message` is there, call update_agent with id=<current> and tools=["send_telegram_message"]. If not, reply "Такого тула нет в библиотеке — создайте его во вкладке Integrations.")
 """
 
 
@@ -59,6 +66,10 @@ When the user describes a process:
 2. If they are editing an existing workflow (context_id is set), use `update_workflow`.
 3. Ask clarifying questions ONLY when you don't know what the pipeline should do. Otherwise proceed.
 4. After the tool call, briefly confirm in the user's language: "✓ Workflow created: ..."
+
+## Available agents as building blocks
+
+Workflows are built from agents. You have access to BOTH the builtin agents (classifier, extractor, validator, risk_scorer, decision_maker, draft_writer) AND the user's custom agents. The full list is shown in the context block under "Available agents" — always reference those exact names in your `user_description` when describing which agent runs at which step. For example, if the user has a custom agent `sales_manager`, say "step 2: run sales_manager agent to qualify the lead" so the workflow generator picks that agent instead of a builtin.
 
 Tool call uses English field names; your chat response should be in the user's language."""
 
@@ -75,6 +86,11 @@ _AGENT_FIELDS: dict[str, Any] = {
     "model_tier": {"type": "string", "enum": ["fast", "balanced", "powerful"], "description": "fast for simple Q&A, balanced for reasoning, powerful for deep analysis"},
     "provider": {"type": "string", "enum": ["anthropic", "openai", "gemini", "mistral", "yandexgpt", "gigachat"], "description": "LLM provider, default anthropic"},
     "tags": {"type": "array", "items": {"type": "string"}, "description": "short tags for search and filtering"},
+    "tools": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "list of tool names to attach to this agent. Must match existing entries in the user's tool library — see 'Available tools' in the context block. Pass an empty array to remove all tools.",
+    },
 }
 
 
@@ -155,6 +171,59 @@ def _get_prompt(context_type: str) -> str:
     return "You are a helpful assistant."
 
 
+async def _load_available_resources(context_type: str, db: AsyncSession) -> str:
+    """Return a context block listing resources the LLM can reference.
+
+    For agent_builder: list of tools in the user's library (so the LLM knows
+    which integrations are valid to attach via the tools field).
+    For workflow_builder: list of agents (builtin + custom) that can be used as
+    workflow building blocks.
+    """
+    parts: list[str] = []
+
+    if context_type == "agent_builder":
+        result = await db.execute(select(Tool.name, Tool.description))
+        rows = result.all()
+        if rows:
+            tool_lines = "\n".join(f"- {name}: {desc or '(no description)'}" for name, desc in rows)
+            parts.append(
+                "\n\n## Available tools in the user's library\n"
+                "You can attach these to an agent by passing their names in the `tools` array:\n"
+                f"{tool_lines}"
+            )
+        else:
+            parts.append(
+                "\n\n## Available tools\n"
+                "(none — user has not created any tools yet. If they ask to add an integration, tell them to go to the Integrations tab first.)"
+            )
+
+    elif context_type == "workflow_builder":
+        # Builtins
+        builtin_names = [
+            "classifier (fast tier — classifies input into categories)",
+            "extractor (balanced — pulls structured data from documents)",
+            "validator (balanced — checks completeness and consistency)",
+            "risk_scorer (powerful — risk assessment with 0-100 score)",
+            "decision_maker (powerful — approve/reject/escalate decisions)",
+            "draft_writer (balanced — generates response text)",
+        ]
+        # Custom agents
+        result = await db.execute(select(AgentConfig.name, AgentConfig.description))
+        custom = result.all()
+        custom_lines = "\n".join(f"- {name}: {desc or '(no description)'}" for name, desc in custom)
+        builtin_lines = "\n".join(f"- {line}" for line in builtin_names)
+        parts.append(
+            "\n\n## Available agents (use these as workflow building blocks)\n"
+            "**Builtin agents:**\n"
+            f"{builtin_lines}\n\n"
+            "**User's custom agents:**\n"
+            f"{custom_lines if custom_lines else '(none yet)'}\n\n"
+            "Reference any of these by their exact name in your user_description field."
+        )
+
+    return "".join(parts)
+
+
 async def _load_entity_context(context_type: str, context_id: str | None, db: AsyncSession) -> str:
     """Load current state of the entity being edited."""
     if not context_id:
@@ -195,6 +264,29 @@ async def _load_entity_context(context_type: str, context_id: str | None, db: As
 # -------- Tool execution --------
 
 
+async def _resolve_tool_names(tool_names: list[str], db: AsyncSession) -> tuple[list[dict[str, Any]], list[str]]:
+    """Given a list of tool names from the LLM, resolve each against the Tool
+    library. Returns (resolved_tools, unknown_names). Each resolved entry is a
+    small dict with name+description — the shape agents.tools expects.
+    """
+    if not tool_names:
+        return [], []
+    clean_names = [n.strip() for n in tool_names if isinstance(n, str) and n.strip()]
+    if not clean_names:
+        return [], []
+    result = await db.execute(select(Tool).where(Tool.name.in_(clean_names)))
+    found = {t.name: t for t in result.scalars().all()}
+    resolved: list[dict[str, Any]] = []
+    unknown: list[str] = []
+    for name in clean_names:
+        tool = found.get(name)
+        if tool is None:
+            unknown.append(name)
+        else:
+            resolved.append({"name": tool.name, "description": tool.description or ""})
+    return resolved, unknown
+
+
 async def _exec_create_agent(
     tool_input: dict[str, Any], db: AsyncSession, project_id: uuid.UUID | None
 ) -> dict[str, Any]:
@@ -207,6 +299,9 @@ async def _exec_create_agent(
     if existing.scalar_one_or_none():
         return {"error": f"Agent '{name}' already exists. Pick a different name or use update_agent."}
 
+    # Resolve tool names against the Tool library
+    resolved_tools, unknown_tools = await _resolve_tool_names(tool_input.get("tools") or [], db)
+
     a = AgentConfig(
         name=name,
         description=tool_input.get("description", "") or "",
@@ -217,15 +312,28 @@ async def _exec_create_agent(
         model_tier=tool_input.get("model_tier", "balanced"),
         provider=tool_input.get("provider", "anthropic"),
         tags=tool_input.get("tags", []) or [],
+        tools=resolved_tools,
         project_id=project_id,
     )
     db.add(a)
     await db.flush()
-    logger.info("builder_created_agent", agent_id=str(a.id), name=a.name)
-    return {
+    logger.info(
+        "builder_created_agent",
+        agent_id=str(a.id),
+        name=a.name,
+        tools_attached=[t["name"] for t in resolved_tools],
+    )
+    result: dict[str, Any] = {
         "ok": True,
         "entity": {"type": "agent", "id": str(a.id), "name": a.name},
     }
+    if unknown_tools:
+        result["warning"] = (
+            f"Agent created, but these tool names were not found in the library "
+            f"and were skipped: {', '.join(unknown_tools)}. Create them under the "
+            f"Integrations tab first, then call update_agent to attach them."
+        )
+    return result
 
 
 async def _exec_update_agent(
@@ -238,7 +346,7 @@ async def _exec_update_agent(
         return {"error": f"invalid agent id: {raw_id}"}
 
     # Pick only fields the LLM actually passed (ignore id itself)
-    fields = {
+    fields: dict[str, Any] = {
         k: v
         for k, v in tool_input.items()
         if k != "id" and v is not None and k in _AGENT_FIELDS
@@ -246,13 +354,36 @@ async def _exec_update_agent(
     if not fields:
         return {"error": "no fields to update"}
 
+    # Special handling for `tools`: resolve names against the library
+    unknown_tools: list[str] = []
+    if "tools" in fields:
+        resolved_tools, unknown_tools = await _resolve_tool_names(fields["tools"] or [], db)
+        fields["tools"] = resolved_tools
+
     await db.execute(update(AgentConfig).where(AgentConfig.id == agent_id).values(**fields))
     await db.flush()
     logger.info("builder_updated_agent", agent_id=str(agent_id), fields=list(fields.keys()))
-    return {
+    result: dict[str, Any] = {
         "ok": True,
         "entity": {"type": "agent", "id": str(agent_id), "updated": list(fields.keys())},
     }
+    if unknown_tools:
+        result["warning"] = (
+            f"Agent updated, but these tool names were not found in the library "
+            f"and were skipped: {', '.join(unknown_tools)}. Create them under the "
+            f"Integrations tab first."
+        )
+    return result
+
+
+async def _collect_available_agents(db: AsyncSession) -> list[dict[str, str]]:
+    """Load all agents (builtin name hints + custom) for the workflow generator."""
+    result = await db.execute(select(AgentConfig.name, AgentConfig.description, AgentConfig.purpose))
+    custom = [
+        {"name": name, "description": desc or "", "purpose": purpose or ""}
+        for name, desc, purpose in result.all()
+    ]
+    return custom
 
 
 async def _exec_create_workflow(
@@ -265,9 +396,11 @@ async def _exec_create_workflow(
     if not user_description:
         return {"error": "user_description is required"}
 
+    available_agents = await _collect_available_agents(db)
+
     try:
         generator = WorkflowGenerator()
-        workflow_def = await generator.generate(user_description)
+        workflow_def = await generator.generate(user_description, available_agents=available_agents)
         workflow_def.name = name  # prefer the name the LLM chose for the tool call
     except Exception as e:
         logger.error("builder_workflow_generate_error", error=str(e))
@@ -303,9 +436,11 @@ async def _exec_update_workflow(
     if not user_description:
         return {"error": "user_description is required"}
 
+    available_agents = await _collect_available_agents(db)
+
     try:
         generator = WorkflowGenerator()
-        workflow_def = await generator.generate(user_description)
+        workflow_def = await generator.generate(user_description, available_agents=available_agents)
         if "name" in tool_input and tool_input["name"]:
             workflow_def.name = tool_input["name"]
     except Exception as e:
@@ -432,9 +567,10 @@ async def send_builder_message(msg: BuilderMessage, db: AsyncSession = Depends(g
         for m in history_result.scalars().all()
     ]
 
-    # Load entity context if editing
+    # Load entity context if editing + list of resources the LLM can reference
     entity_context = await _load_entity_context(msg.context_type, msg.context_id, db)
-    system_prompt = _get_prompt(msg.context_type) + entity_context
+    resources_context = await _load_available_resources(msg.context_type, db)
+    system_prompt = _get_prompt(msg.context_type) + resources_context + entity_context
 
     # Resolve provider by model prefix (same pattern as /api/conversations/send)
     selected_model = msg.model or ""
