@@ -25,10 +25,19 @@ interface Connection {
 
 /**
  * Hard-coded catalog of popular integrations shown in the "Library" section.
- * Clicking Install creates a Connection row with these preset tools and
- * routes the user to the connection page so they can fill in credentials.
- * This is an MVP registry — extend as we add first-class presets.
+ * Clicking Install opens a credential modal (if the preset needs one) and
+ * then creates a Connection row with these preset tools and routes the user
+ * to the connection page. This is an MVP registry — extend as we add
+ * first-class presets.
  */
+interface CredentialField {
+  key: string; // field name stored in Connection.credentials
+  label: string; // human label in the modal
+  placeholder?: string;
+  help?: string; // short hint under the input
+  type?: "text" | "password";
+}
+
 interface LibraryPreset {
   id: string; // stable id for selection state
   name: string;
@@ -37,6 +46,7 @@ interface LibraryPreset {
   color: string;
   base_url: string;
   auth_type: string;
+  credential_fields: CredentialField[];
   tools: Array<{
     name: string;
     description: string;
@@ -54,9 +64,18 @@ const LIBRARY_PRESETS: LibraryPreset[] = [
     color: "#0088cc",
     base_url: "https://api.telegram.org",
     auth_type: "api_key",
+    credential_fields: [
+      {
+        key: "bot_token",
+        label: "Bot Token",
+        placeholder: "123456:ABC-DEF...",
+        help: "Получи у @BotFather в Telegram",
+        type: "password",
+      },
+    ],
     tools: [
-      { name: "send_message", description: "Send a text message to a Telegram chat", url: "https://api.telegram.org/bot{token}/sendMessage", method: "POST" },
-      { name: "get_updates", description: "Get new updates from the bot", url: "https://api.telegram.org/bot{token}/getUpdates", method: "GET" },
+      { name: "send_message", description: "Send a text message to a Telegram chat", url: "https://api.telegram.org/bot{bot_token}/sendMessage", method: "POST" },
+      { name: "get_updates", description: "Get new updates from the bot", url: "https://api.telegram.org/bot{bot_token}/getUpdates", method: "GET" },
     ],
   },
   {
@@ -67,6 +86,15 @@ const LIBRARY_PRESETS: LibraryPreset[] = [
     color: "#4a154b",
     base_url: "https://slack.com/api",
     auth_type: "bearer",
+    credential_fields: [
+      {
+        key: "bot_token",
+        label: "Bot User OAuth Token",
+        placeholder: "xoxb-...",
+        help: "Создай Slack App, получи Bot Token в OAuth & Permissions",
+        type: "password",
+      },
+    ],
     tools: [
       { name: "post_message", description: "Post a message to a Slack channel", url: "https://slack.com/api/chat.postMessage", method: "POST" },
       { name: "list_channels", description: "List channels in the workspace", url: "https://slack.com/api/conversations.list", method: "GET" },
@@ -80,6 +108,15 @@ const LIBRARY_PRESETS: LibraryPreset[] = [
     color: "#5865f2",
     base_url: "https://discord.com/api/v10",
     auth_type: "bearer",
+    credential_fields: [
+      {
+        key: "bot_token",
+        label: "Bot Token",
+        placeholder: "MTk4NjIy...",
+        help: "Создай приложение на discord.com/developers, возьми Bot Token",
+        type: "password",
+      },
+    ],
     tools: [
       { name: "send_channel_message", description: "Send a message to a Discord channel", url: "https://discord.com/api/v10/channels/{channel_id}/messages", method: "POST" },
     ],
@@ -92,6 +129,15 @@ const LIBRARY_PRESETS: LibraryPreset[] = [
     color: "#000000",
     base_url: "https://api.notion.com/v1",
     auth_type: "bearer",
+    credential_fields: [
+      {
+        key: "integration_token",
+        label: "Internal Integration Token",
+        placeholder: "secret_...",
+        help: "notion.so/my-integrations → New integration",
+        type: "password",
+      },
+    ],
     tools: [
       { name: "query_database", description: "Query a Notion database for pages", url: "https://api.notion.com/v1/databases/{database_id}/query", method: "POST" },
       { name: "create_page", description: "Create a new page in Notion", url: "https://api.notion.com/v1/pages", method: "POST" },
@@ -105,6 +151,15 @@ const LIBRARY_PRESETS: LibraryPreset[] = [
     color: "#24292f",
     base_url: "https://api.github.com",
     auth_type: "bearer",
+    credential_fields: [
+      {
+        key: "personal_access_token",
+        label: "Personal Access Token",
+        placeholder: "ghp_...",
+        help: "github.com/settings/tokens → Generate new token",
+        type: "password",
+      },
+    ],
     tools: [
       { name: "list_issues", description: "List issues in a repository", url: "https://api.github.com/repos/{owner}/{repo}/issues", method: "GET" },
       { name: "create_issue", description: "Create an issue in a repository", url: "https://api.github.com/repos/{owner}/{repo}/issues", method: "POST" },
@@ -118,6 +173,15 @@ const LIBRARY_PRESETS: LibraryPreset[] = [
     color: "#635bff",
     base_url: "https://api.stripe.com/v1",
     auth_type: "bearer",
+    credential_fields: [
+      {
+        key: "secret_key",
+        label: "Secret Key",
+        placeholder: "sk_live_... or sk_test_...",
+        help: "dashboard.stripe.com/apikeys",
+        type: "password",
+      },
+    ],
     tools: [
       { name: "list_customers", description: "List Stripe customers", url: "https://api.stripe.com/v1/customers", method: "GET" },
       { name: "create_payment_intent", description: "Create a payment intent", url: "https://api.stripe.com/v1/payment_intents", method: "POST" },
@@ -131,6 +195,15 @@ const LIBRARY_PRESETS: LibraryPreset[] = [
     color: "#f97316",
     base_url: "https://api.openweathermap.org/data/2.5",
     auth_type: "api_key",
+    credential_fields: [
+      {
+        key: "api_key",
+        label: "API Key",
+        placeholder: "your-32-char-api-key",
+        help: "home.openweathermap.org/api_keys",
+        type: "password",
+      },
+    ],
     tools: [
       { name: "get_weather", description: "Get current weather for a city", url: "https://api.openweathermap.org/data/2.5/weather", method: "GET" },
     ],
@@ -143,6 +216,15 @@ const LIBRARY_PRESETS: LibraryPreset[] = [
     color: "#0f9d58",
     base_url: "https://sheets.googleapis.com/v4",
     auth_type: "bearer",
+    credential_fields: [
+      {
+        key: "access_token",
+        label: "OAuth Access Token",
+        placeholder: "ya29....",
+        help: "Получи через OAuth 2.0 Playground или собственный OAuth flow",
+        type: "password",
+      },
+    ],
     tools: [
       { name: "read_range", description: "Read values from a spreadsheet range", url: "https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{range}", method: "GET" },
       { name: "append_row", description: "Append a row to a spreadsheet", url: "https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{range}:append", method: "POST" },
@@ -157,6 +239,10 @@ export default function ToolsPage() {
   const [tab, setTab] = useState<"installed" | "library">("installed");
   const [search, setSearch] = useState("");
   const [installing, setInstalling] = useState<string | null>(null);
+  // Modal state: which preset is being installed, and what the user typed
+  // into each credential field. null = modal closed.
+  const [installPreset, setInstallPreset] = useState<LibraryPreset | null>(null);
+  const [credValues, setCredValues] = useState<Record<string, string>>({});
 
   async function refresh() {
     try {
@@ -199,17 +285,43 @@ export default function ToolsPage() {
     }
   }
 
-  async function installPreset(preset: LibraryPreset) {
+  function openInstallModal(preset: LibraryPreset) {
     if (installingPresetActive(preset)) return;
+    // Seed every credential field with an empty value so controlled inputs
+    // don't flip between uncontrolled ↔ controlled on first keystroke.
+    const seed: Record<string, string> = {};
+    for (const f of preset.credential_fields) seed[f.key] = "";
+    setCredValues(seed);
+    setInstallPreset(preset);
+  }
+
+  function closeInstallModal() {
+    setInstallPreset(null);
+    setCredValues({});
+  }
+
+  async function confirmInstall() {
+    if (!installPreset) return;
+    const preset = installPreset;
+
+    // Require every declared field — no silent empty installs. If a field
+    // is marked optional in the future, the check can be per-field.
+    for (const f of preset.credential_fields) {
+      if (!credValues[f.key]?.trim()) {
+        alert(`Заполни поле: ${f.label}`);
+        return;
+      }
+    }
+
     setInstalling(preset.id);
     try {
-      // 1. Create the Connection row
+      // 1. Create the Connection row with the entered credentials
       const conn = (await api.createConnection({
         name: preset.name,
         description: preset.description,
         base_url: preset.base_url,
         auth_type: preset.auth_type,
-        credentials: {},
+        credentials: { ...credValues },
       })) as { id: string; name: string };
 
       // 2. Create each preset tool attached to that connection
@@ -223,9 +335,10 @@ export default function ToolsPage() {
         });
       }
 
+      closeInstallModal();
       await refresh();
-      // Route user to the connection detail page so they can fill credentials
-      router.push(`/tools/connections/${conn.id}`);
+      // Switch back to Installed so the user immediately sees their new card
+      setTab("installed");
     } catch (e) {
       alert(e instanceof Error ? e.message : "Failed to install");
     } finally {
@@ -263,6 +376,108 @@ export default function ToolsPage() {
 
   return (
     <div>
+      {/* Credential prompt modal for library installs */}
+      {installPreset && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.7)" }}
+          onClick={closeInstallModal}
+        >
+          <div
+            className="w-full max-w-md rounded-lg flex flex-col"
+            style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-6 py-4 flex items-start gap-3" style={{ borderBottom: "1px solid var(--border)" }}>
+              <div
+                className="w-10 h-10 rounded-md flex items-center justify-center shrink-0 text-xl"
+                style={{
+                  background: installPreset.color + "20",
+                  border: `1px solid ${installPreset.color}40`,
+                }}
+              >
+                {installPreset.icon}
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>
+                  Install {installPreset.name}
+                </h3>
+                <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+                  Введи данные для доступа — они хранятся только у тебя
+                </p>
+              </div>
+              <button
+                onClick={closeInstallModal}
+                className="text-xl leading-none px-2"
+                style={{ color: "var(--text-muted)" }}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="px-6 py-4 space-y-3">
+              {installPreset.credential_fields.length === 0 ? (
+                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  Эта интеграция не требует ключей — просто нажми Install.
+                </p>
+              ) : (
+                installPreset.credential_fields.map((field) => (
+                  <div key={field.key}>
+                    <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>
+                      {field.label} <span style={{ color: "#ee4444" }}>*</span>
+                    </label>
+                    <input
+                      type={field.type || "text"}
+                      value={credValues[field.key] || ""}
+                      onChange={(e) => setCredValues((prev) => ({ ...prev, [field.key]: e.target.value }))}
+                      placeholder={field.placeholder}
+                      className="w-full px-3 py-2 rounded-md text-sm font-mono"
+                      style={{
+                        background: "var(--bg-secondary)",
+                        border: "1px solid var(--border)",
+                        color: "var(--text-primary)",
+                      }}
+                      autoComplete="off"
+                    />
+                    {field.help && (
+                      <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+                        {field.help}
+                      </p>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div
+              className="px-6 py-3 flex items-center justify-between gap-3"
+              style={{ borderTop: "1px solid var(--border)" }}
+            >
+              <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                {installPreset.tools.length} tool{installPreset.tools.length === 1 ? "" : "s"} will be added
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={closeInstallModal}
+                  className="text-xs px-3 py-1.5 rounded-md"
+                  style={{ color: "var(--text-muted)", border: "1px solid var(--border)" }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmInstall}
+                  disabled={installing === installPreset.id}
+                  className="text-xs px-3 py-1.5 rounded-md font-medium disabled:opacity-50"
+                  style={{ background: "var(--text-primary)", color: "var(--bg-primary)" }}
+                >
+                  {installing === installPreset.id ? "Installing..." : "Install"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight" style={{ color: "var(--text-primary)" }}>
@@ -439,7 +654,7 @@ export default function ToolsPage() {
                       </span>
                     ) : (
                       <button
-                        onClick={() => installPreset(preset)}
+                        onClick={() => openInstallModal(preset)}
                         disabled={isBusy}
                         className="text-[11px] px-2 py-0.5 rounded shrink-0 disabled:opacity-50"
                         style={{ background: "var(--text-primary)", color: "var(--bg-primary)" }}
