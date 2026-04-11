@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
@@ -25,30 +25,35 @@ export default function EditAgentPage() {
     is_public: false, tags: "",
   });
 
-  useEffect(() => {
-    api.getAgent(agentId).then((d: unknown) => {
-      const a = d as Record<string, unknown>;
+  const loadAgent = useCallback(async () => {
+    try {
+      const d = (await api.getAgent(agentId)) as Record<string, unknown>;
       setForm({
-        name: (a.name as string) || "",
-        description: (a.description as string) || "",
-        purpose: (a.purpose as string) || "",
-        provider: (a.provider as string) || "anthropic",
-        model_tier: (a.model_tier as string) || "balanced",
-        system_prompt: (a.system_prompt as string) || "",
-        constraints: (a.constraints as string) || "",
-        clarification_rules: (a.clarification_rules as string) || "",
-        temperature: (a.temperature as number) || 0,
-        timeout_seconds: (a.timeout_seconds as number) || 120,
-        max_retries: (a.max_retries as number) || 3,
-        max_tokens: (a.max_tokens as number) || 32000,
-        tools: (a.tools as Array<{ name: string; description: string }>) || [],
-        knowledge_bases: (a.knowledge_bases as Array<{ name: string; type: string; source: string }>) || [],
-        is_public: (a.is_public as boolean) || false,
-        tags: Array.isArray(a.tags) ? (a.tags as string[]).join(", ") : "",
+        name: (d.name as string) || "",
+        description: (d.description as string) || "",
+        purpose: (d.purpose as string) || "",
+        provider: (d.provider as string) || "anthropic",
+        model_tier: (d.model_tier as string) || "balanced",
+        system_prompt: (d.system_prompt as string) || "",
+        constraints: (d.constraints as string) || "",
+        clarification_rules: (d.clarification_rules as string) || "",
+        temperature: (d.temperature as number) || 0,
+        timeout_seconds: (d.timeout_seconds as number) || 120,
+        max_retries: (d.max_retries as number) || 3,
+        max_tokens: (d.max_tokens as number) || 32000,
+        tools: (d.tools as Array<{ name: string; description: string }>) || [],
+        knowledge_bases: (d.knowledge_bases as Array<{ name: string; type: string; source: string }>) || [],
+        is_public: (d.is_public as boolean) || false,
+        tags: Array.isArray(d.tags) ? (d.tags as string[]).join(", ") : "",
       });
+    } finally {
       setLoading(false);
-    }).catch(() => setLoading(false));
+    }
   }, [agentId]);
+
+  useEffect(() => {
+    loadAgent().catch(() => setLoading(false));
+  }, [loadAgent]);
 
   function update(field: string, value: unknown) {
     setForm((p) => ({ ...p, [field]: value }));
@@ -198,7 +203,17 @@ export default function EditAgentPage() {
       </div>
       </div>
       <div className="w-80 h-[calc(100vh-120px)] sticky top-20 hidden lg:block">
-        <BuilderChat contextType="agent_builder" contextId={agentId} title="Edit Agent with AI" placeholder="Ask to adjust the agent..." />
+        <BuilderChat
+          contextType="agent_builder"
+          contextId={agentId}
+          title="Edit Agent with AI"
+          placeholder="Ask to adjust the agent..."
+          onEntityCreated={(e) => {
+            if (e.type === "agent" && e.id === agentId) {
+              loadAgent();
+            }
+          }}
+        />
       </div>
     </div>
   );

@@ -255,7 +255,16 @@ export default function NewAgentPage() {
     </div>
     {/* Chat Helper */}
     <div className="w-80 h-[calc(100vh-120px)] sticky top-20 hidden lg:block">
-      <BuilderChat contextType="agent_builder" title="AI Assistant" placeholder="Describe your agent..." />
+      <BuilderChat
+        contextType="agent_builder"
+        title="AI Assistant"
+        placeholder="Describe your agent..."
+        onEntityCreated={(e) => {
+          if (e.type === "agent") {
+            router.push(`/agents/${e.id}/edit`);
+          }
+        }}
+      />
     </div>
     </div>
   );

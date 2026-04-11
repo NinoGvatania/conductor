@@ -45,17 +45,22 @@ When the user describes what they need:
 4. Always write `constraints` as checkable rules, one per line — they are enforced by automatic post-validation, so vague rules will not work.
 5. Respond in the user's language after the tool call. The tool call itself uses English field names.
 
-## Tools / Integrations
+## Tools / Integrations — STRICT RULES
 
-You CAN attach API tools from the user's library to an agent. Pass a `tools` array with tool names — the backend resolves each name against the Tool library (shown in the context block as "Available tools"). Example: if the user has a tool named `send_telegram_message`, calling `update_agent(id=..., tools=["send_telegram_message"])` attaches it. If the user asks to add an integration that DOES NOT exist in the available tools list, tell them to first create it under the Integrations tab — don't fabricate tool names.
+1. You can ONLY attach tools whose names appear verbatim in the "Available tools in the user's library" section of the context block. That list is the single source of truth.
+2. If that list is EMPTY, or if it does not contain what the user is asking for, you MUST NOT pass a `tools` field at all. Instead, reply in the user's language: "В библиотеке нет подходящих тулов. Создайте их во вкладке Integrations (укажите name, URL, method), а потом вернитесь сюда — я их подключу." / "No matching tools in your library. Create them under the Integrations tab first, then come back."
+3. NEVER fabricate tool names. Do not invent names like `send_telegram_message`, `bot_api`, `http_request`, etc. unless you see that exact string in the available tools list.
+4. When you DO attach tools, use EXACT case-sensitive names from the list.
+5. If the backend returns a tool error ("Requested tool names don't exist..."), DO NOT retry with similar made-up names. Read the error, tell the user which names are missing and how to create them, and stop.
+6. If the user says "add tools on your own" / "добавь инструменты на свой вкус" and the available list is empty, this is the SAME situation — refuse to fabricate and explain rule #2.
 
-Example flow:
+Example:
 User: "Сделай агента поддержки клиентов на русском"
 You: (call create_agent with name=customer_support, description="...", system_prompt="Ты — дружелюбный агент поддержки...", constraints="- Отвечать только на русском\\n- Не обещать того что не гарантировано\\n- Ответ ≤ 300 слов", model_tier="fast", provider="anthropic")
 Then: "✓ Готово, создал агента customer_support."
 
 User: "Добавь ему интеграцию с телеграм"
-You: (check the Available tools list in the context. If `send_telegram_message` is there, call update_agent with id=<current> and tools=["send_telegram_message"]. If not, reply "Такого тула нет в библиотеке — создайте его во вкладке Integrations.")
+You: (check the Available tools list. If `send_telegram_message` is THERE verbatim → call update_agent with id=<current> and tools=["send_telegram_message"]. If NOT → reply "В библиотеке нет тула для Telegram. Создайте его во вкладке Integrations и вернитесь.")
 """
 
 
@@ -299,8 +304,11 @@ async def _exec_create_agent(
     if existing.scalar_one_or_none():
         return {"error": f"Agent '{name}' already exists. Pick a different name or use update_agent."}
 
-    # Resolve tool names against the Tool library
-    resolved_tools, unknown_tools = await _resolve_tool_names(tool_input.get("tools") or [], db)
+    # Resolve tool names against the Tool library. For create_agent, if ALL
+    # requested tool names are unknown we still create the agent (with no tools)
+    # and return a warning so the LLM can tell the user what to do.
+    requested_tools = tool_input.get("tools") or []
+    resolved_tools, unknown_tools = await _resolve_tool_names(requested_tools, db)
 
     a = AgentConfig(
         name=name,
@@ -322,6 +330,7 @@ async def _exec_create_agent(
         agent_id=str(a.id),
         name=a.name,
         tools_attached=[t["name"] for t in resolved_tools],
+        unknown_tools=unknown_tools,
     )
     result: dict[str, Any] = {
         "ok": True,
@@ -354,20 +363,51 @@ async def _exec_update_agent(
     if not fields:
         return {"error": "no fields to update"}
 
-    # Special handling for `tools`: resolve names against the library
+    # Strict handling for `tools`:
+    # - if the LLM passed an empty list explicitly, allow it (user wants to remove all)
+    # - if ALL requested names are unknown, DROP the field entirely to avoid
+    #   destructively overwriting the agent's existing tools with []
+    # - if some found, apply those and warn about the rest
     unknown_tools: list[str] = []
+    tool_field_error: str | None = None
     if "tools" in fields:
-        resolved_tools, unknown_tools = await _resolve_tool_names(fields["tools"] or [], db)
-        fields["tools"] = resolved_tools
+        requested = fields.get("tools") or []
+        if requested:  # non-empty request -> resolve
+            resolved_tools, unknown_tools = await _resolve_tool_names(requested, db)
+            if not resolved_tools:
+                # All hallucinated — don't overwrite the existing tools column
+                del fields["tools"]
+                tool_field_error = (
+                    f"Requested tool names don't exist in the library: "
+                    f"{', '.join(unknown_tools)}. Create them in the "
+                    f"Integrations tab first, then ask me to attach them."
+                )
+            else:
+                fields["tools"] = resolved_tools
+        else:
+            # explicit empty list — user wants to remove all tools
+            fields["tools"] = []
+
+    if not fields:
+        # Everything was stripped (tools rejected and it was the only field)
+        return {"error": tool_field_error or "no fields to update"}
 
     await db.execute(update(AgentConfig).where(AgentConfig.id == agent_id).values(**fields))
     await db.flush()
-    logger.info("builder_updated_agent", agent_id=str(agent_id), fields=list(fields.keys()))
+    logger.info(
+        "builder_updated_agent",
+        agent_id=str(agent_id),
+        fields=list(fields.keys()),
+        unknown_tools=unknown_tools,
+    )
     result: dict[str, Any] = {
         "ok": True,
         "entity": {"type": "agent", "id": str(agent_id), "updated": list(fields.keys())},
     }
-    if unknown_tools:
+    if tool_field_error:
+        # We applied the other fields but rejected tools wholesale
+        result["warning"] = tool_field_error
+    elif unknown_tools:
         result["warning"] = (
             f"Agent updated, but these tool names were not found in the library "
             f"and were skipped: {', '.join(unknown_tools)}. Create them under the "
@@ -562,9 +602,11 @@ async def send_builder_message(msg: BuilderMessage, db: AsyncSession = Depends(g
     history_result = await db.execute(
         select(Message).where(Message.conversation_id == conv_id).order_by(Message.created_at)
     )
-    messages = [
+    history_rows = history_result.scalars().all()
+    is_first_turn = len(history_rows) <= 1  # only the user message we just saved
+    messages_for_llm: list[dict[str, Any]] = [
         {"role": "user" if m.role == "user" else "assistant", "content": m.content}
-        for m in history_result.scalars().all()
+        for m in history_rows
     ]
 
     # Load entity context if editing + list of resources the LLM can reference
@@ -581,57 +623,102 @@ async def send_builder_message(msg: BuilderMessage, db: AsyncSession = Depends(g
         provider = ModelRouter.get_provider("anthropic")
         provider_name = "anthropic"
     model_router = ModelRouter()
+    model_to_use = msg.model or model_router.resolve("balanced")
 
     tools = _tools_for_context(msg.context_type, msg.context_id)
-
-    request = LLMRequest(
-        model=msg.model or model_router.resolve("balanced"),
-        system_prompt=system_prompt,
-        messages=messages,
-        tools=tools,
-        temperature=0.4,
-        max_tokens=32000,
-    )
 
     assistant_content = ""
     created_entities: list[dict[str, Any]] = []
     token_metadata: dict[str, Any] = {}
     project_uuid = uuid.UUID(msg.project_id) if msg.project_id else None
 
-    try:
-        response = await provider.complete(request)
-        initial_text = response.content or ""
+    # Multi-round tool-use loop. Each round:
+    # 1. ask the LLM (with accumulated history + tool_result blocks from last round)
+    # 2. if it replies with text only, we're done
+    # 3. otherwise execute each tool_use block, append assistant message + user
+    #    message with tool_result blocks, and loop again
+    MAX_TOOL_ROUNDS = 5
+    tool_results_log: list[dict[str, Any]] = []
+    final_text = ""
+    total_input_tokens = 0
+    total_output_tokens = 0
+    last_model_name = ""
 
-        # Execute any tool calls the LLM requested
-        tool_results: list[dict[str, Any]] = []
-        if response.tool_calls:
+    try:
+        for _round in range(MAX_TOOL_ROUNDS):
+            request = LLMRequest(
+                model=model_to_use,
+                system_prompt=system_prompt,
+                messages=messages_for_llm,
+                tools=tools,
+                temperature=0.4,
+                max_tokens=32000,
+            )
+            response = await provider.complete(request)
+            total_input_tokens += response.input_tokens
+            total_output_tokens += response.output_tokens
+            last_model_name = response.model or last_model_name
+
+            if not response.tool_calls:
+                final_text = response.content or ""
+                break
+
+            # Reconstruct assistant message with both text and tool_use blocks
+            assistant_blocks: list[dict[str, Any]] = []
+            if response.content:
+                assistant_blocks.append({"type": "text", "text": response.content})
+            for tc in response.tool_calls:
+                assistant_blocks.append({
+                    "type": "tool_use",
+                    "id": tc["id"],
+                    "name": tc["name"],
+                    "input": tc.get("input") or {},
+                })
+            messages_for_llm.append({"role": "assistant", "content": assistant_blocks})
+
+            # Execute each tool call and collect tool_result blocks
+            tool_result_blocks: list[dict[str, Any]] = []
             for tc in response.tool_calls:
                 result = await _execute_builder_tool(
                     tc["name"], tc.get("input", {}) or {}, db, project_uuid
                 )
-                tool_results.append({"tool": tc["name"], "result": result})
+                tool_results_log.append({"tool": tc["name"], "result": result})
                 entity = result.get("entity") if isinstance(result, dict) else None
                 if result.get("ok") and entity and "id" in entity:
                     created_entities.append(entity)
+                tool_result_blocks.append({
+                    "type": "tool_result",
+                    "tool_use_id": tc["id"],
+                    "content": json.dumps(result, ensure_ascii=False, default=str),
+                    "is_error": bool(result.get("error")),
+                })
 
-        # Build the assistant message:
-        # - LLM's own prose (if any) describing what it did
-        # - followed by a compact confirmation line per created/updated entity
+            messages_for_llm.append({"role": "user", "content": tool_result_blocks})
+        else:
+            # Loop exhausted without a text-only reply
+            final_text = (
+                "Достиг лимита итераций тулов — попробуйте переформулировать запрос."
+            )
+
+        # Build the final assistant message:
+        # - final prose from the LLM's last text-only turn
+        # - compact confirmation/warning lines for each tool that ran
         summary_lines: list[str] = []
-        for tr in tool_results:
+        for tr in tool_results_log:
             res = tr["result"]
             if res.get("ok") and res.get("entity"):
                 entity = res["entity"]
-                if tr["tool"].startswith("create_"):
-                    summary_lines.append(f"✓ Created {entity['type']} '{entity.get('name', entity['id'])}'")
-                elif tr["tool"].startswith("update_"):
-                    summary_lines.append(f"✓ Updated {entity['type']} '{entity.get('name', entity['id'])}'")
-            elif res.get("error"):
+                verb = "Created" if tr["tool"].startswith("create_") else "Updated"
+                label = entity.get("name", entity.get("id", "?"))
+                summary_lines.append(f"✓ {verb} {entity['type']} '{label}'")
+            if res.get("warning"):
+                summary_lines.append(f"⚠ {res['warning']}")
+            if res.get("error"):
                 summary_lines.append(f"⚠ {tr['tool']} failed: {res['error']}")
 
         parts: list[str] = []
-        if initial_text.strip():
-            parts.append(initial_text.strip())
+        if final_text.strip():
+            parts.append(final_text.strip())
         if summary_lines:
             parts.append("\n".join(summary_lines))
         if not parts:
@@ -639,15 +726,15 @@ async def send_builder_message(msg: BuilderMessage, db: AsyncSession = Depends(g
         assistant_content = "\n\n".join(parts)
 
         token_metadata = {
-            "input_tokens": response.input_tokens,
-            "output_tokens": response.output_tokens,
-            "tokens_used": response.input_tokens + response.output_tokens,
-            "model": response.model or (msg.model or ""),
+            "input_tokens": total_input_tokens,
+            "output_tokens": total_output_tokens,
+            "tokens_used": total_input_tokens + total_output_tokens,
+            "model": last_model_name or model_to_use,
             "provider": provider_name,
             "created_entities": created_entities,
         }
     except Exception as e:
-        logger.error("builder_chat_error", error=str(e))
+        logger.error("builder_chat_error", error=str(e), exc_info=True)
         assistant_content = f"Error: {e}"
 
     assistant_msg = Message(
@@ -658,7 +745,7 @@ async def send_builder_message(msg: BuilderMessage, db: AsyncSession = Depends(g
     )
     db.add(assistant_msg)
 
-    if len(messages) <= 1:
+    if is_first_turn:
         await db.execute(
             update(Conversation).where(Conversation.id == conv_id).values(title=msg.content[:50])
         )
