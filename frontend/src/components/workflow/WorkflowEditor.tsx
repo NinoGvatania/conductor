@@ -50,6 +50,10 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
   const [editingEdge, setEditingEdge] = useState<Edge | null>(null);
   const [edgeDescription, setEdgeDescription] = useState("");
 
+  // Agent library modal (replaces the old permanent left sidebar)
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [librarySearch, setLibrarySearch] = useState("");
+
   useEffect(() => {
     api.listAgents().then((agents) => {
       const custom = (agents as Array<Record<string, unknown>>)
@@ -209,34 +213,132 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
         </div>
       )}
 
-      <div className="w-52 p-3 overflow-y-auto" style={{ borderRight: "1px solid var(--border)", background: "var(--bg-secondary)" }}>
-        <p className="text-[10px] font-medium uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>Built-in</p>
-        {BUILTIN_TEMPLATES.map((t) => (
-          <button key={t.label} onClick={() => addNode(t)} className="w-full text-left px-3 py-1.5 rounded-md text-xs mb-0.5" style={{ color: "var(--text-secondary)", border: "1px solid var(--border)" }}>
-            {t.label}
-          </button>
-        ))}
-
-        {customAgents.length > 0 && (
-          <>
-            <p className="text-[10px] font-medium uppercase tracking-wider mt-4 mb-2" style={{ color: "var(--text-muted)" }}>My Agents</p>
-            {customAgents.map((a) => (
-              <button key={a.name} onClick={() => addNode({ nodeType: "agent", label: a.name, agentName: a.name })} className="w-full text-left px-3 py-1.5 rounded-md text-xs mb-0.5" style={{ color: "#3291ff", border: "1px solid var(--border)" }}>
-                {a.name}
+      {/* Agent library modal — opened from the floating toolbar */}
+      {libraryOpen && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.6)" }}
+          onClick={() => setLibraryOpen(false)}
+        >
+          <div
+            className="w-full max-w-2xl max-h-[85vh] rounded-lg flex flex-col"
+            style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: "1px solid var(--border)" }}>
+              <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                Agent library
+              </h3>
+              <button
+                onClick={() => setLibraryOpen(false)}
+                className="text-lg leading-none px-1"
+                style={{ color: "var(--text-muted)" }}
+              >
+                ×
               </button>
-            ))}
-          </>
-        )}
+            </div>
+            <div className="px-5 py-3" style={{ borderBottom: "1px solid var(--border)" }}>
+              <input
+                value={librarySearch}
+                onChange={(e) => setLibrarySearch(e.target.value)}
+                placeholder="Search agents..."
+                className="w-full px-3 py-2 rounded-md text-sm"
+                style={inputStyle}
+                autoFocus
+              />
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+              {(() => {
+                const q = librarySearch.toLowerCase().trim();
+                const matches = (label: string, extra = "") =>
+                  !q ||
+                  label.toLowerCase().includes(q) ||
+                  extra.toLowerCase().includes(q);
 
-        <div className="mt-4 pt-3 space-y-1" style={{ borderTop: "1px solid var(--border)" }}>
-          {selectedNode && (
-            <button onClick={deleteSelected} className="w-full px-3 py-1.5 rounded-md text-xs" style={{ color: "#ee0000", border: "1px solid var(--border)" }}>Delete Selected</button>
-          )}
-          <button onClick={() => onSave?.(nodes, edges)} className="w-full px-3 py-1.5 rounded-md text-xs font-medium" style={{ background: "var(--text-primary)", color: "var(--bg-primary)" }}>Save Workflow</button>
+                const filteredBuiltin = BUILTIN_TEMPLATES.filter((t) =>
+                  matches(t.label, t.agentName || t.nodeType),
+                );
+                const filteredCustom = customAgents.filter((a) => matches(a.name, a.description));
+
+                return (
+                  <>
+                    {filteredBuiltin.length > 0 && (
+                      <div>
+                        <p className="text-[10px] font-medium uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>
+                          Built-in
+                        </p>
+                        <div className="grid grid-cols-2 gap-2">
+                          {filteredBuiltin.map((t) => (
+                            <button
+                              key={t.label}
+                              onClick={() => {
+                                addNode(t);
+                                setLibraryOpen(false);
+                                setLibrarySearch("");
+                              }}
+                              className="text-left px-3 py-2 rounded-md text-xs"
+                              style={{
+                                color: "var(--text-secondary)",
+                                background: "var(--bg-secondary)",
+                                border: "1px solid var(--border)",
+                              }}
+                            >
+                              <div className="font-medium" style={{ color: "var(--text-primary)" }}>{t.label}</div>
+                              <div className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>
+                                {t.nodeType}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {filteredCustom.length > 0 && (
+                      <div>
+                        <p className="text-[10px] font-medium uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>
+                          My Agents
+                        </p>
+                        <div className="grid grid-cols-2 gap-2">
+                          {filteredCustom.map((a) => (
+                            <button
+                              key={a.name}
+                              onClick={() => {
+                                addNode({ nodeType: "agent", label: a.name, agentName: a.name });
+                                setLibraryOpen(false);
+                                setLibrarySearch("");
+                              }}
+                              className="text-left px-3 py-2 rounded-md text-xs"
+                              style={{
+                                color: "#3291ff",
+                                background: "var(--bg-secondary)",
+                                border: "1px solid var(--border)",
+                              }}
+                            >
+                              <div className="font-medium">{a.name}</div>
+                              {a.description && (
+                                <div className="text-[10px] mt-0.5 line-clamp-2" style={{ color: "var(--text-muted)" }}>
+                                  {a.description}
+                                </div>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {filteredBuiltin.length === 0 && filteredCustom.length === 0 && (
+                      <p className="text-xs text-center py-8" style={{ color: "var(--text-muted)" }}>
+                        No agents match your search
+                      </p>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className="flex-1">
+      {/* Full-width canvas + floating toolbar */}
+      <div className="flex-1 relative">
         <ReactFlow
           nodes={nodes} edges={edges}
           onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
@@ -250,6 +352,41 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
           <Controls style={{ background: "#1c1c27", border: "1px solid #333", borderRadius: 8 }} />
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#222" />
         </ReactFlow>
+
+        {/* Floating bottom-left toolbar — Zapier-style */}
+        <div
+          className="absolute bottom-4 left-4 flex gap-2 items-center px-2 py-2 rounded-lg z-10"
+          style={{
+            background: "var(--bg-card)",
+            border: "1px solid var(--border)",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+          }}
+        >
+          <button
+            onClick={() => setLibraryOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium"
+            style={{ color: "var(--text-primary)", background: "var(--bg-hover)" }}
+          >
+            <span className="text-sm">📚</span> Library
+          </button>
+          {selectedNode && (
+            <button
+              onClick={deleteSelected}
+              className="px-3 py-1.5 rounded-md text-xs"
+              style={{ color: "#ee4444", border: "1px solid var(--border)" }}
+            >
+              Delete node
+            </button>
+          )}
+          <div className="w-px h-5" style={{ background: "var(--border)" }} />
+          <button
+            onClick={() => onSave?.(nodes, edges)}
+            className="px-3 py-1.5 rounded-md text-xs font-medium"
+            style={{ background: "var(--text-primary)", color: "var(--bg-primary)" }}
+          >
+            Save Workflow
+          </button>
+        </div>
       </div>
     </div>
   );

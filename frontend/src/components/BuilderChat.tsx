@@ -51,6 +51,34 @@ export default function BuilderChat({
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Load the most recent existing conversation for this (contextType, contextId).
+  // This is what makes the chat feel persistent — re-opening the same agent's
+  // editor brings back the full conversation history instead of a blank chat.
+  useEffect(() => {
+    let cancelled = false;
+    async function loadHistory() {
+      try {
+        const convs = (await api.listBuilderConversations(contextType, contextId)) as Array<{
+          id: string;
+          updated_at: string | null;
+        }>;
+        if (cancelled || !Array.isArray(convs) || convs.length === 0) return;
+        // The backend already sorts by updated_at desc — take the first
+        const latest = convs[0];
+        const msgs = (await api.getBuilderMessages(latest.id)) as Message[];
+        if (cancelled) return;
+        setConvId(latest.id);
+        setMessages(msgs || []);
+      } catch {
+        // Fresh chat if anything fails
+      }
+    }
+    loadHistory();
+    return () => {
+      cancelled = true;
+    };
+  }, [contextType, contextId]);
+
   // Load available models from connected providers (same pattern as /chat page)
   useEffect(() => {
     let cancelled = false;
