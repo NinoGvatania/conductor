@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { api } from "@/lib/api";
 
 interface Message { role: string; content: string; }
@@ -16,8 +16,18 @@ export default function AgentChatHelper({ onSuggestion }: AgentChatHelperProps) 
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+
+  useLayoutEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    const MAX_HEIGHT = 180;
+    ta.style.height = Math.min(ta.scrollHeight, MAX_HEIGHT) + "px";
+    ta.style.overflowY = ta.scrollHeight > MAX_HEIGHT ? "auto" : "hidden";
+  }, [input]);
 
   async function handleSend() {
     if (!input.trim() || loading) return;
@@ -63,17 +73,30 @@ export default function AgentChatHelper({ onSuggestion }: AgentChatHelperProps) 
         <div ref={endRef} />
       </div>
       <div className="p-2" style={{ borderTop: "1px solid var(--border)" }}>
-        <div className="flex gap-1">
-          <input
+        <div className="flex gap-1 items-end">
+          <textarea
+            ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSend()}
-            placeholder="Describe your agent..."
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
+            placeholder="Describe your agent... (Shift+Enter for newline)"
             disabled={loading}
-            className="flex-1 px-2 py-1.5 rounded text-xs"
-            style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
+            rows={1}
+            className="flex-1 px-2 py-2 rounded text-xs resize-none leading-relaxed"
+            style={{
+              background: "var(--bg-secondary)",
+              border: "1px solid var(--border)",
+              color: "var(--text-primary)",
+              minHeight: "32px",
+              maxHeight: "180px",
+            }}
           />
-          <button onClick={handleSend} disabled={loading || !input.trim()} className="px-2 py-1.5 rounded text-xs font-medium disabled:opacity-30" style={{ background: "var(--text-primary)", color: "var(--bg-primary)" }}>→</button>
+          <button onClick={handleSend} disabled={loading || !input.trim()} className="px-2 py-2 rounded text-xs font-medium disabled:opacity-30 shrink-0" style={{ background: "var(--text-primary)", color: "var(--bg-primary)" }}>→</button>
         </div>
       </div>
     </div>

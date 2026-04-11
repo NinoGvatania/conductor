@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, Suspense } from "react";
+import { useState, useEffect, useRef, useLayoutEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 
@@ -20,6 +20,17 @@ function ChatContent() {
   const [model, setModel] = useState("claude-sonnet-4-6");
   const [availableModels, setAvailableModels] = useState<Array<{ id: string; name: string; provider: string }>>([]);
   const messagesEnd = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-resize textarea up to a max height, then scroll internally
+  useLayoutEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    const MAX_HEIGHT = 240;
+    ta.style.height = Math.min(ta.scrollHeight, MAX_HEIGHT) + "px";
+    ta.style.overflowY = ta.scrollHeight > MAX_HEIGHT ? "auto" : "hidden";
+  }, [input]);
 
   // Load models from connected providers
   useEffect(() => {
@@ -161,20 +172,33 @@ function ChatContent() {
               )}
             </select>
           </div>
-          <div className="flex gap-2">
-          <input
+          <div className="flex gap-2 items-end">
+          <textarea
+            ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-            placeholder="Describe a task for your agents..."
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
+            placeholder="Describe a task for your agents... (Shift+Enter for newline)"
             disabled={sending}
-            className="flex-1 px-4 py-3 rounded-xl text-sm"
-            style={{ background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
+            rows={1}
+            className="flex-1 px-4 py-3 rounded-xl text-sm resize-none leading-relaxed"
+            style={{
+              background: "var(--bg-card)",
+              border: "1px solid var(--border)",
+              color: "var(--text-primary)",
+              minHeight: "48px",
+              maxHeight: "240px",
+            }}
           />
           <button
             onClick={handleSend}
             disabled={sending || !input.trim()}
-            className="px-4 py-3 rounded-xl text-sm font-medium disabled:opacity-30"
+            className="px-4 py-3 rounded-xl text-sm font-medium disabled:opacity-30 shrink-0"
             style={{ background: "var(--text-primary)", color: "var(--bg-primary)" }}
           >
             Send

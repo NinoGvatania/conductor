@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 
 interface Message {
@@ -22,10 +22,21 @@ export default function BuilderChat({ contextType, contextId, title, placeholder
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Auto-resize textarea up to a max height, then scroll internally
+  useLayoutEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    const MAX_HEIGHT = 180;
+    ta.style.height = Math.min(ta.scrollHeight, MAX_HEIGHT) + "px";
+    ta.style.overflowY = ta.scrollHeight > MAX_HEIGHT ? "auto" : "hidden";
+  }, [input]);
 
   async function handleSend() {
     if (!input.trim() || sending) return;
@@ -94,20 +105,33 @@ export default function BuilderChat({ contextType, contextId, title, placeholder
         <div ref={endRef} />
       </div>
       <div className="p-2" style={{ borderTop: "1px solid var(--border)" }}>
-        <div className="flex gap-1">
-          <input
+        <div className="flex gap-1 items-end">
+          <textarea
+            ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-            placeholder={placeholder || "Describe your needs..."}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
+            placeholder={placeholder || "Describe your needs... (Shift+Enter for newline)"}
             disabled={sending}
-            className="flex-1 px-3 py-1.5 rounded text-xs"
-            style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
+            rows={1}
+            className="flex-1 px-3 py-2 rounded text-xs resize-none leading-relaxed"
+            style={{
+              background: "var(--bg-secondary)",
+              border: "1px solid var(--border)",
+              color: "var(--text-primary)",
+              minHeight: "32px",
+              maxHeight: "180px",
+            }}
           />
           <button
             onClick={handleSend}
             disabled={sending || !input.trim()}
-            className="px-3 py-1.5 rounded text-xs font-medium disabled:opacity-30"
+            className="px-3 py-2 rounded text-xs font-medium disabled:opacity-30 shrink-0"
             style={{ background: "var(--text-primary)", color: "var(--bg-primary)" }}
           >
             →
