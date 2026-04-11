@@ -53,9 +53,9 @@ class AgentConfig(Base, TimestampMixin):
     model_tier: Mapped[str] = mapped_column(String(50), default="balanced")
     provider: Mapped[str] = mapped_column(String(50), default="anthropic")
     system_prompt: Mapped[str] = mapped_column(Text, default="")
-    negative_prompt: Mapped[str] = mapped_column(Text, default="")
-    constraints: Mapped[str] = mapped_column(Text, default="")
-    clarification_rules: Mapped[str] = mapped_column(Text, default="")
+    negative_prompt: Mapped[str] = mapped_column(Text, default="", server_default="")
+    constraints: Mapped[str] = mapped_column(Text, default="", server_default="")
+    clarification_rules: Mapped[str] = mapped_column(Text, default="", server_default="")
     output_schema: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     temperature: Mapped[float] = mapped_column(Float, default=0.0)
     timeout_seconds: Mapped[int] = mapped_column(Integer, default=120)
@@ -152,7 +152,7 @@ class Conversation(Base, TimestampMixin):
     initiated_by: Mapped[str] = mapped_column(String(50), default="user")
     agent_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Context: "orchestrator" (uses tools to run things) | "agent_builder" | "workflow_builder"
-    context_type: Mapped[str] = mapped_column(String(50), default="orchestrator", index=True)
+    context_type: Mapped[str] = mapped_column(String(50), default="orchestrator", server_default="orchestrator", index=True)
     # If builder, ID of the entity being built/edited
     context_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
