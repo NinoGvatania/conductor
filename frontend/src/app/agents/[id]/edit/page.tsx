@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import ToolPicker from "@/components/ToolPicker";
+import BuilderChat from "@/components/BuilderChat";
 
 export default function EditAgentPage() {
   const params = useParams();
@@ -15,7 +16,11 @@ export default function EditAgentPage() {
   const [showToolPicker, setShowToolPicker] = useState(false);
   const [form, setForm] = useState({
     name: "", description: "", purpose: "", provider: "anthropic", model_tier: "balanced",
-    system_prompt: "", temperature: 0, timeout_seconds: 120, max_retries: 3, max_tokens: 4096,
+    system_prompt: "",
+    negative_prompt: "",
+    constraints: "",
+    clarification_rules: "",
+    temperature: 0, timeout_seconds: 120, max_retries: 3, max_tokens: 4096,
     tools: [] as Array<{ name: string; description: string }>,
     knowledge_bases: [] as Array<{ name: string; type: string; source: string }>,
     is_public: false, tags: "",
@@ -31,6 +36,9 @@ export default function EditAgentPage() {
         provider: (a.provider as string) || "anthropic",
         model_tier: (a.model_tier as string) || "balanced",
         system_prompt: (a.system_prompt as string) || "",
+        negative_prompt: (a.negative_prompt as string) || "",
+        constraints: (a.constraints as string) || "",
+        clarification_rules: (a.clarification_rules as string) || "",
         temperature: (a.temperature as number) || 0,
         timeout_seconds: (a.timeout_seconds as number) || 120,
         max_retries: (a.max_retries as number) || 3,
@@ -68,7 +76,8 @@ export default function EditAgentPage() {
   const inputStyle = { background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-primary)" };
 
   return (
-    <div className="max-w-2xl">
+    <div className="flex gap-6">
+      <div className="flex-1 max-w-2xl">
       <Link href={`/agents/${agentId}`} className="text-xs mb-2 inline-block" style={{ color: "var(--text-muted)" }}>← Back</Link>
       <h1 className="text-2xl font-semibold tracking-tight mb-6" style={{ color: "var(--text-primary)" }}>Edit Agent</h1>
 
@@ -114,6 +123,21 @@ export default function EditAgentPage() {
         <div>
           <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>System Prompt</label>
           <textarea value={form.system_prompt} onChange={(e) => update("system_prompt", e.target.value)} rows={5} className="w-full px-3 py-2 rounded-md text-sm font-mono" style={inputStyle} />
+        </div>
+
+        <div>
+          <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Negative Prompt — what NOT to do</label>
+          <textarea value={form.negative_prompt} onChange={(e) => update("negative_prompt", e.target.value)} rows={3} placeholder="Never promise discounts above 20%..." className="w-full px-3 py-2 rounded-md text-sm" style={inputStyle} />
+        </div>
+
+        <div>
+          <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Constraints — hard limits</label>
+          <textarea value={form.constraints} onChange={(e) => update("constraints", e.target.value)} rows={3} placeholder="Max response 500 words..." className="w-full px-3 py-2 rounded-md text-sm" style={inputStyle} />
+        </div>
+
+        <div>
+          <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Clarification Rules — when to ask instead of guessing</label>
+          <textarea value={form.clarification_rules} onChange={(e) => update("clarification_rules", e.target.value)} rows={3} placeholder="Ask when budget is unclear..." className="w-full px-3 py-2 rounded-md text-sm" style={inputStyle} />
         </div>
 
         {/* Tools */}
@@ -175,6 +199,10 @@ export default function EditAgentPage() {
           </button>
           <button onClick={() => router.push(`/agents/${agentId}`)} className="px-4 py-2 rounded-md text-sm" style={{ color: "var(--text-muted)", border: "1px solid var(--border)" }}>Cancel</button>
         </div>
+      </div>
+      </div>
+      <div className="w-80 h-[calc(100vh-120px)] sticky top-20 hidden lg:block">
+        <BuilderChat contextType="agent_builder" contextId={agentId} title="Edit Agent with AI" placeholder="Ask to adjust the agent..." />
       </div>
     </div>
   );

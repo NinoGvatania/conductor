@@ -38,6 +38,9 @@ class AgentCreate(BaseModel):
     model_tier: str = "balanced"
     provider: str = "anthropic"
     system_prompt: str = ""
+    negative_prompt: str = ""
+    constraints: str = ""
+    clarification_rules: str = ""
     output_schema: dict[str, Any] = Field(default_factory=dict)
     temperature: float = 0.0
     timeout_seconds: int = 120
@@ -57,6 +60,9 @@ class AgentUpdate(BaseModel):
     model_tier: str | None = None
     provider: str | None = None
     system_prompt: str | None = None
+    negative_prompt: str | None = None
+    constraints: str | None = None
+    clarification_rules: str | None = None
     output_schema: dict[str, Any] | None = None
     temperature: float | None = None
     timeout_seconds: int | None = None
@@ -77,6 +83,9 @@ def _serialize(a: AgentConfig) -> dict:
         "model_tier": a.model_tier,
         "provider": a.provider,
         "system_prompt": a.system_prompt,
+        "negative_prompt": a.negative_prompt or "",
+        "constraints": a.constraints or "",
+        "clarification_rules": a.clarification_rules or "",
         "output_schema": a.output_schema,
         "temperature": a.temperature,
         "timeout_seconds": a.timeout_seconds,
@@ -129,6 +138,9 @@ async def create_agent(agent: AgentCreate, db: AsyncSession = Depends(get_db)):
         model_tier=agent.model_tier,
         provider=agent.provider,
         system_prompt=agent.system_prompt,
+        negative_prompt=agent.negative_prompt,
+        constraints=agent.constraints,
+        clarification_rules=agent.clarification_rules,
         output_schema=agent.output_schema,
         temperature=agent.temperature,
         timeout_seconds=agent.timeout_seconds,

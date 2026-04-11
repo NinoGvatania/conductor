@@ -8,6 +8,7 @@ from backend.database import init_db
 from backend.routes import (
     agents,
     auth,
+    builders,
     connections,
     conversations,
     files,
@@ -57,6 +58,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(projects.router)
 app.include_router(conversations.router)
+app.include_router(builders.router)
 app.include_router(agents.router)
 app.include_router(connections.router)
 app.include_router(tools.router)

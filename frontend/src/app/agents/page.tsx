@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import BuilderChat from "@/components/BuilderChat";
 
 interface Agent {
   id: string;
@@ -38,7 +39,8 @@ export default function AgentsPage() {
     );
 
   return (
-    <div>
+    <div className="flex gap-6">
+      <div className="flex-1 min-w-0">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight" style={{ color: "var(--text-primary)" }}>Agents</h1>
@@ -113,6 +115,10 @@ export default function AgentsPage() {
           </p>
         </div>
       )}
+      </div>
+      <div className="w-80 h-[calc(100vh-120px)] sticky top-20 hidden lg:block">
+        <BuilderChat contextType="agent_builder" title="Design Agent with AI" placeholder="Describe the agent you need..." />
+      </div>
     </div>
   );
 }

@@ -45,6 +45,19 @@ class AgentRunner:
         # Build a lookup for tool configs (for execution)
         tool_configs = {t["name"]: t for t in tools}
 
+        # Build enriched system prompt with constraints
+        system_parts = [agent_contract.system_prompt or ""]
+        if getattr(agent_contract, "negative_prompt", ""):
+            system_parts.append(f"\n\n## Do NOT do the following:\n{agent_contract.negative_prompt}")
+        if getattr(agent_contract, "constraints", ""):
+            system_parts.append(f"\n\n## Constraints (must follow):\n{agent_contract.constraints}")
+        if getattr(agent_contract, "clarification_rules", ""):
+            system_parts.append(
+                f"\n\n## When to ask for clarification:\n{agent_contract.clarification_rules}\n\n"
+                "If any of these conditions apply, respond with a clarification question instead of guessing."
+            )
+        full_system_prompt = "".join(system_parts)
+
         while retries <= agent_contract.max_retries:
             start = time.monotonic()
             try:
@@ -54,7 +67,7 @@ class AgentRunner:
 
                 request = LLMRequest(
                     model=model,
-                    system_prompt=agent_contract.system_prompt,
+                    system_prompt=full_system_prompt,
                     messages=messages,
                     temperature=agent_contract.temperature,
                     max_tokens=agent_contract.max_tokens,

@@ -44,6 +44,10 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [customAgents, setCustomAgents] = useState<Array<{ name: string; description: string }>>([]);
 
+  // Modal for edge description
+  const [pendingConnection, setPendingConnection] = useState<Connection | null>(null);
+  const [edgeDescription, setEdgeDescription] = useState("");
+
   useEffect(() => {
     api.listAgents().then((agents) => {
       const custom = (agents as Array<Record<string, unknown>>)
@@ -54,8 +58,35 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
   }, []);
 
   const onConnect = useCallback((params: Connection) => {
-    setEdges((eds) => addEdge({ ...params, style: { stroke: "#444", strokeWidth: 2 }, animated: true }, eds));
-  }, [setEdges]);
+    // Open modal to ask for edge description
+    setPendingConnection(params);
+    setEdgeDescription("");
+  }, []);
+
+  function confirmConnection() {
+    if (!pendingConnection) return;
+    const newEdge: Edge = {
+      id: `${pendingConnection.source}-${pendingConnection.target}-${Date.now()}`,
+      source: pendingConnection.source!,
+      target: pendingConnection.target!,
+      sourceHandle: pendingConnection.sourceHandle,
+      targetHandle: pendingConnection.targetHandle,
+      style: { stroke: "#444", strokeWidth: 2 },
+      animated: true,
+      label: edgeDescription || undefined,
+      labelStyle: { fill: "#888", fontSize: 10 },
+      labelBgStyle: { fill: "#1c1c27" },
+      data: { description: edgeDescription },
+    };
+    setEdges((eds) => addEdge(newEdge, eds));
+    setPendingConnection(null);
+    setEdgeDescription("");
+  }
+
+  function cancelConnection() {
+    setPendingConnection(null);
+    setEdgeDescription("");
+  }
 
   function addNode(template: { nodeType: string; label: string; agentName: string | null }) {
     const id = `node_${Date.now()}`;
@@ -74,8 +105,39 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
     setSelectedNode(null);
   }
 
+  const inputStyle = { background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-primary)" };
+
   return (
-    <div className="flex h-full">
+    <div className="flex h-full relative">
+      {/* Edge description modal */}
+      {pendingConnection && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }}>
+          <div className="w-full max-w-md rounded-lg p-5" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
+            <h3 className="text-sm font-semibold mb-2" style={{ color: "var(--text-primary)" }}>Explain this connection</h3>
+            <p className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>
+              Why does data flow from <code>{pendingConnection.source}</code> to <code>{pendingConnection.target}</code>?
+              Agents will receive this context during execution.
+            </p>
+            <textarea
+              value={edgeDescription}
+              onChange={(e) => setEdgeDescription(e.target.value)}
+              placeholder="e.g. Classified category is used to decide which extraction schema to apply..."
+              rows={4}
+              className="w-full px-3 py-2 rounded-md text-sm mb-3"
+              style={inputStyle}
+            />
+            <div className="flex justify-end gap-2">
+              <button onClick={cancelConnection} className="px-3 py-1.5 rounded-md text-xs" style={{ color: "var(--text-muted)", border: "1px solid var(--border)" }}>
+                Cancel
+              </button>
+              <button onClick={confirmConnection} className="px-3 py-1.5 rounded-md text-xs font-medium" style={{ background: "var(--text-primary)", color: "var(--bg-primary)" }}>
+                Create Connection
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="w-52 p-3 overflow-y-auto" style={{ borderRight: "1px solid var(--border)", background: "var(--bg-secondary)" }}>
         <p className="text-[10px] font-medium uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>Built-in</p>
         {BUILTIN_TEMPLATES.map((t) => (

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import BuilderChat from "@/components/BuilderChat";
 
 interface Workflow { id: string; name: string; version: string; created_at: string; }
 interface Template { id: string; name: string; description: string; tags: string[]; definition: Record<string, unknown>; }
@@ -35,7 +36,8 @@ export default function WorkflowsPage() {
   }
 
   return (
-    <div>
+    <div className="flex gap-6">
+      <div className="flex-1 min-w-0">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight" style={{ color: "var(--text-primary)" }}>Workflows</h1>
@@ -113,6 +115,10 @@ export default function WorkflowsPage() {
           ))}
         </div>
       )}
+      </div>
+      <div className="w-80 h-[calc(100vh-120px)] sticky top-20 hidden lg:block">
+        <BuilderChat contextType="workflow_builder" title="Design Workflow with AI" placeholder="Describe your process..." />
+      </div>
     </div>
   );
 }

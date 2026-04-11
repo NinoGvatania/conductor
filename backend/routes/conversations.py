@@ -217,7 +217,8 @@ def _serialize_conv(c: Conversation) -> dict:
 
 @router.get("")
 async def list_conversations(project_id: str | None = None, db: AsyncSession = Depends(get_db)):
-    query = select(Conversation).order_by(Conversation.updated_at.desc())
+    # Only return orchestrator chats — builder chats are returned from /api/builders/conversations
+    query = select(Conversation).where(Conversation.context_type == "orchestrator").order_by(Conversation.updated_at.desc())
     if project_id:
         query = query.where(Conversation.project_id == uuid.UUID(project_id))
     result = await db.execute(query)
@@ -251,6 +252,7 @@ async def send_message(msg: MessageSend, db: AsyncSession = Depends(get_db)):
         conv = Conversation(
             title=msg.content[:50],
             initiated_by="user",
+            context_type="orchestrator",
             project_id=uuid.UUID(msg.project_id) if msg.project_id else None,
         )
         db.add(conv)

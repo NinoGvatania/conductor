@@ -53,6 +53,26 @@ export const api = {
     }),
   deleteConversation: (id: string) => request(`/api/conversations/${id}`, { method: "DELETE" }),
 
+  // Builder chats (agent/workflow creation)
+  listBuilderConversations: (contextType?: string, contextId?: string) => {
+    const params = new URLSearchParams();
+    if (contextType) params.set("context_type", contextType);
+    if (contextId) params.set("context_id", contextId);
+    const qs = params.toString();
+    return request(`/api/builders/conversations${qs ? "?" + qs : ""}`);
+  },
+  getBuilderMessages: (convId: string) => request(`/api/builders/conversations/${convId}/messages`),
+  sendBuilderMessage: (content: string, contextType: string, contextId?: string, conversationId?: string) =>
+    request("/api/builders/send", {
+      method: "POST",
+      body: JSON.stringify({
+        content,
+        context_type: contextType,
+        context_id: contextId,
+        conversation_id: conversationId,
+      }),
+    }),
+
   // Agents
   listAgents: () => request("/api/agents"),
   getAgent: (id: string) => request(`/api/agents/${id}`),

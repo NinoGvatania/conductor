@@ -1,22 +1,37 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { api } from "@/lib/api";
 import type { Node, Edge } from "@xyflow/react";
+import BuilderChat from "@/components/BuilderChat";
 
 const WorkflowEditor = dynamic(() => import("@/components/workflow/WorkflowEditor"), { ssr: false });
 
 export default function WorkflowEditorPage() {
+  return <Suspense><EditorContent /></Suspense>;
+}
+
+function EditorContent() {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState("New Workflow");
+  const [description, setDescription] = useState("");
+  const [showChat, setShowChat] = useState(false);
 
   async function handleSave(nodes: Node[], edges: Edge[]) {
     setSaving(true);
     try {
-      // Convert visual nodes/edges to WorkflowDefinition
+      // Build edge descriptions map: "source->target" -> description
+      const edgeDescriptions: Record<string, string> = {};
+      for (const e of edges) {
+        const desc = (e.data as Record<string, unknown> | undefined)?.description;
+        if (desc && typeof desc === "string") {
+          edgeDescriptions[`${e.source}->${e.target}`] = desc;
+        }
+      }
+
       const workflowNodes = nodes.map((n) => {
         const targets = edges.filter((e) => e.source === n.id).map((e) => e.target);
         return {
@@ -36,9 +51,11 @@ export default function WorkflowEditorPage() {
       const workflow = {
         id: crypto.randomUUID(),
         name,
+        description,
         version: "1.0.0",
         entry_node: entryNode,
         nodes: workflowNodes,
+        edge_descriptions: edgeDescriptions,
         max_total_cost_usd: 2.0,
         max_total_steps: 50,
       };
@@ -61,16 +78,39 @@ export default function WorkflowEditorPage() {
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="px-2 py-1 rounded text-sm w-64"
+          placeholder="Workflow name"
+          className="px-2 py-1 rounded text-sm w-48"
           style={inputStyle}
         />
+        <input
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="What does this workflow do?"
+          className="px-2 py-1 rounded text-sm flex-1"
+          style={inputStyle}
+        />
+        <button
+          onClick={() => setShowChat(!showChat)}
+          className="px-2 py-1 rounded text-xs"
+          style={{ color: showChat ? "var(--text-primary)" : "var(--text-muted)", border: "1px solid var(--border)" }}
+        >
+          {showChat ? "Hide AI" : "AI Helper"}
+        </button>
         <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-          {saving ? "Saving..." : "Drag nodes from the left panel. Connect by dragging handles."}
+          {saving ? "Saving..." : "Drag nodes → connect → explain each connection"}
         </span>
       </div>
-      {/* Editor */}
-      <div className="flex-1">
-        <WorkflowEditor onSave={handleSave} />
+
+      {/* Editor + optional chat */}
+      <div className="flex-1 flex">
+        <div className="flex-1">
+          <WorkflowEditor onSave={handleSave} />
+        </div>
+        {showChat && (
+          <div className="w-80" style={{ borderLeft: "1px solid var(--border)" }}>
+            <BuilderChat contextType="workflow_builder" title="Design with AI" placeholder="Describe your workflow..." />
+          </div>
+        )}
       </div>
     </div>
   );

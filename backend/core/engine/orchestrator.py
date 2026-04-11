@@ -126,7 +126,7 @@ class OrchestrationEngine:
             logger.info("executing_node", node_id=node.id, node_type=node.type.value)
 
             if node.type == NodeType.agent:
-                step = await self._execute_agent_node(node, run_state)
+                step = await self._execute_agent_node(node, run_state, workflow)
                 # If agent needs approval, create a chat conversation
                 if step.status == StepStatus.waiting_approval:
                     await self._notify_user_via_chat(node, step, run_state)
@@ -185,7 +185,7 @@ class OrchestrationEngine:
         return run_state
 
     async def _execute_agent_node(
-        self, node: NodeDefinition, run_state: RunState
+        self, node: NodeDefinition, run_state: RunState, workflow: WorkflowDefinition | None = None
     ) -> StepResult:
         agent_name = node.agent_name or node.id
         agent_dict = BUILTIN_AGENTS.get(agent_name)
@@ -242,7 +242,7 @@ class OrchestrationEngine:
             )
 
         agent_contract = AgentContract(**agent_dict)
-        task = self._build_task(node, run_state)
+        task = self._build_task(node, run_state, workflow)
         step = await self.agent_runner.run(
             agent_contract, task, run_state.intermediate_results, tools=agent_tools
         )
@@ -397,14 +397,42 @@ class OrchestrationEngine:
             output={"evaluated_node": target_node, "valid": True},
         )
 
-    def _build_task(self, node: NodeDefinition, run_state: RunState) -> str:
+    def _build_task(self, node: NodeDefinition, run_state: RunState, workflow: WorkflowDefinition | None = None) -> str:
         parts = []
-        # Use node config description if available
-        desc = node.config.get("description", "")
-        if desc:
-            parts.append(f"Task: {desc}")
+
+        # Workflow-level context
+        if workflow and workflow.description:
+            parts.append(f"You are part of workflow '{workflow.name}': {workflow.description}")
+
+        # Node-level description (purpose in the workflow)
+        node_desc = getattr(node, "description", "") or node.config.get("description", "")
+        if node_desc:
+            parts.append(f"Your role in this step: {node_desc}")
         else:
             parts.append(f"Process data for step '{node.id}'.")
+
+        # Incoming edge context — why previous step passes data to this one
+        if workflow and workflow.edge_descriptions:
+            incoming = []
+            for other in workflow.nodes:
+                if node.id in (other.next_nodes or []):
+                    edge_key = f"{other.id}->{node.id}"
+                    edge_desc = workflow.edge_descriptions.get(edge_key)
+                    if edge_desc:
+                        incoming.append(f"- From '{other.id}': {edge_desc}")
+            if incoming:
+                parts.append("Why you received data from previous steps:\n" + "\n".join(incoming))
+
+        # Outgoing edge context — what comes next
+        if workflow and workflow.edge_descriptions and node.next_nodes:
+            outgoing = []
+            for next_id in node.next_nodes:
+                edge_key = f"{node.id}->{next_id}"
+                edge_desc = workflow.edge_descriptions.get(edge_key)
+                if edge_desc:
+                    outgoing.append(f"- To '{next_id}': {edge_desc}")
+            if outgoing:
+                parts.append("Your output will be used for:\n" + "\n".join(outgoing))
 
         if run_state.input_data:
             parts.append(f"Input data: {json.dumps(run_state.input_data, ensure_ascii=False, default=str)}")

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
-import AgentChatHelper from "@/components/AgentChatHelper";
+import BuilderChat from "@/components/BuilderChat";
 import ToolPicker from "@/components/ToolPicker";
 
 interface CatalogProvider { id: string; name: string; models: Array<{ id: string; name: string; tier: string }>; }
@@ -28,6 +28,9 @@ export default function NewAgentPage() {
     name: "", description: "", purpose: "",
     provider: "anthropic", model_tier: "balanced",
     system_prompt: "",
+    negative_prompt: "",
+    constraints: "",
+    clarification_rules: "",
     temperature: 0, max_tokens: 4096,
     tools: [] as Array<{ name: string; description: string; url: string; method: string; headers: string; parameters: string }>,
     knowledge_bases: [] as Array<{ name: string; type: string; content: string }>,
@@ -108,6 +111,24 @@ export default function NewAgentPage() {
         <div>
           <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>System Prompt</label>
           <textarea value={form.system_prompt} onChange={(e) => update("system_prompt", e.target.value)} rows={5} placeholder="You are a sales manager agent. Your role is to..." className="w-full px-3 py-2 rounded-md text-sm" style={s} />
+        </div>
+
+        {/* Negative Prompt */}
+        <div>
+          <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Negative Prompt — what NOT to do</label>
+          <textarea value={form.negative_prompt} onChange={(e) => update("negative_prompt", e.target.value)} rows={3} placeholder="Never promise discounts above 20%. Do not share internal financial data. Never respond with offensive content." className="w-full px-3 py-2 rounded-md text-sm" style={s} />
+        </div>
+
+        {/* Constraints */}
+        <div>
+          <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Constraints — hard limits</label>
+          <textarea value={form.constraints} onChange={(e) => update("constraints", e.target.value)} rows={3} placeholder="Maximum response length: 500 words. Always respond in the user's language. Always cite sources." className="w-full px-3 py-2 rounded-md text-sm" style={s} />
+        </div>
+
+        {/* Clarification Rules */}
+        <div>
+          <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Clarification Rules — when to ask instead of guessing</label>
+          <textarea value={form.clarification_rules} onChange={(e) => update("clarification_rules", e.target.value)} rows={3} placeholder="Ask when customer budget is unclear. Ask when request conflicts with policy. Ask before making any write action." className="w-full px-3 py-2 rounded-md text-sm" style={s} />
         </div>
 
         {/* Tools */}
@@ -238,7 +259,7 @@ export default function NewAgentPage() {
     </div>
     {/* Chat Helper */}
     <div className="w-80 h-[calc(100vh-120px)] sticky top-20 hidden lg:block">
-      <AgentChatHelper />
+      <BuilderChat contextType="agent_builder" title="AI Assistant" placeholder="Describe your agent..." />
     </div>
     </div>
   );
