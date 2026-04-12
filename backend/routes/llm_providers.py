@@ -17,7 +17,6 @@ PROVIDER_CATALOG = [
     {"id": "yandexgpt", "name": "YandexGPT", "description": "Russian language optimized", "models": [], "auth_type": "api_key", "auth_placeholder": "AQVN..."},
     {"id": "gigachat", "name": "GigaChat", "description": "GigaChat from Sber", "models": [], "auth_type": "api_key", "auth_placeholder": "Bearer ..."},
     {"id": "mistral", "name": "Mistral", "description": "Mistral AI models", "models": [], "auth_type": "api_key", "auth_placeholder": "..."},
-    {"id": "custom", "name": "Custom (OpenAI-compatible)", "description": "Any OpenAI-compatible endpoint", "models": [], "auth_type": "api_key_and_url", "auth_placeholder": "sk-..."},
 ]
 
 
