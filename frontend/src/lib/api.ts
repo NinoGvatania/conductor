@@ -147,6 +147,16 @@ export const api = {
   getProviderModels: (provider: string) =>
     request(`/api/llm-providers/${provider}/models`),
 
+  // Workflow Triggers
+  listTriggers: (workflowId: string) =>
+    request(`/api/workflows/${workflowId}/triggers`),
+  createTrigger: (workflowId: string, data: Record<string, unknown>) =>
+    request(`/api/workflows/${workflowId}/triggers`, { method: "POST", body: JSON.stringify(data) }),
+  updateTrigger: (triggerId: string, data: Record<string, unknown>) =>
+    request(`/api/triggers/${triggerId}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteTrigger: (triggerId: string) =>
+    request(`/api/triggers/${triggerId}`, { method: "DELETE" }),
+
   // Knowledge Bases
   listKnowledgeBases: (projectId?: string) =>
     request(`/api/knowledge-bases${projectId ? `?project_id=${projectId}` : ""}`),

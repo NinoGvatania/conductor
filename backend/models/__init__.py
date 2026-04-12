@@ -5,6 +5,7 @@ from backend.models.tables import (
     Project,
     AgentConfig,
     Workflow,
+    WorkflowTrigger,
     Run,
     Step,
     Approval,
@@ -36,4 +37,5 @@ __all__ = [
     "ProjectMember",
     "KnowledgeBase",
     "KnowledgeChunk",
+    "WorkflowTrigger",
 ]

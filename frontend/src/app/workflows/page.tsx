@@ -94,6 +94,7 @@ export default function WorkflowsPage() {
                       <div className="flex gap-2">
                         <button onClick={() => handleRun(w.id)} className="text-[11px] px-2 py-0.5 rounded" style={{ color: "#0cce6b", border: "1px solid var(--border)" }}>Run</button>
                         <Link href={`/workflows/editor?id=${w.id}`} className="text-[11px] px-2 py-0.5 rounded" style={{ color: "var(--text-secondary)", border: "1px solid var(--border)" }}>Edit</Link>
+                        <Link href={`/workflows/${w.id}/triggers`} className="text-[11px] px-2 py-0.5 rounded" style={{ color: "#f5a623", border: "1px solid var(--border)" }}>Triggers</Link>
                         <button onClick={() => handleDelete(w.id)} className="text-[11px] px-2 py-0.5 rounded" style={{ color: "#ee0000", border: "1px solid var(--border)" }}>Delete</button>
                       </div>
                     </td>
