@@ -11,6 +11,7 @@ class NodeType(str, Enum):
     parallel = "parallel"
     human = "human"
     evaluator = "evaluator"
+    trigger = "trigger"
 
 
 class NodeDefinition(BaseModel):

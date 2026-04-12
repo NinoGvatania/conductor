@@ -17,6 +17,7 @@ from backend.routes import (
     projects,
     runs,
     tools,
+    triggers,
     workflows,
 )
 
@@ -64,6 +65,7 @@ app.include_router(agents.router)
 app.include_router(connections.router)
 app.include_router(tools.router)
 app.include_router(knowledge_bases.router)
+app.include_router(triggers.router)
 app.include_router(workflows.router)
 app.include_router(runs.router)
 app.include_router(llm_providers.router)

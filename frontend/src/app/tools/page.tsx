@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { useProject } from "@/contexts/ProjectContext";
 
 interface Tool {
   id: string;
@@ -78,136 +79,6 @@ const LIBRARY_PRESETS: LibraryPreset[] = [
     tools: [
       { name: "send_message", description: "Send a text message to a Telegram chat", url: "https://api.telegram.org/bot{bot_token}/sendMessage", method: "POST" },
       { name: "get_updates", description: "Get new updates from the bot", url: "https://api.telegram.org/bot{bot_token}/getUpdates", method: "GET" },
-    ],
-  },
-  {
-    id: "slack",
-    name: "Slack",
-    description: "Постинг сообщений в каналы, работа с пользователями и threads",
-    icon: "💬",
-    color: "#4a154b",
-    base_url: "https://slack.com/api",
-    auth_type: "bearer",
-    credential_fields: [
-      {
-        key: "bot_token",
-        label: "Bot User OAuth Token",
-        placeholder: "xoxb-...",
-        help: "Создай Slack App, получи Bot Token в OAuth & Permissions",
-        type: "password",
-      },
-    ],
-    tools: [
-      { name: "post_message", description: "Post a message to a Slack channel", url: "https://slack.com/api/chat.postMessage", method: "POST" },
-      { name: "list_channels", description: "List channels in the workspace", url: "https://slack.com/api/conversations.list", method: "GET" },
-    ],
-  },
-  {
-    id: "discord",
-    name: "Discord",
-    description: "Отправка сообщений и управление серверами Discord",
-    icon: "🎮",
-    color: "#5865f2",
-    base_url: "https://discord.com/api/v10",
-    auth_type: "bearer",
-    credential_fields: [
-      {
-        key: "bot_token",
-        label: "Bot Token",
-        placeholder: "MTk4NjIy...",
-        help: "Создай приложение на discord.com/developers, возьми Bot Token",
-        type: "password",
-      },
-    ],
-    tools: [
-      { name: "send_channel_message", description: "Send a message to a Discord channel", url: "https://discord.com/api/v10/channels/{channel_id}/messages", method: "POST" },
-    ],
-  },
-  {
-    id: "notion",
-    name: "Notion",
-    description: "Чтение и создание страниц, баз данных, блоков",
-    icon: "📝",
-    color: "#000000",
-    base_url: "https://api.notion.com/v1",
-    auth_type: "bearer",
-    credential_fields: [
-      {
-        key: "integration_token",
-        label: "Internal Integration Token",
-        placeholder: "secret_...",
-        help: "notion.so/my-integrations → New integration",
-        type: "password",
-      },
-    ],
-    tools: [
-      { name: "query_database", description: "Query a Notion database for pages", url: "https://api.notion.com/v1/databases/{database_id}/query", method: "POST" },
-      { name: "create_page", description: "Create a new page in Notion", url: "https://api.notion.com/v1/pages", method: "POST" },
-    ],
-  },
-  {
-    id: "github",
-    name: "GitHub",
-    description: "Работа с issues, PR, репозиториями через GitHub API",
-    icon: "🐙",
-    color: "#24292f",
-    base_url: "https://api.github.com",
-    auth_type: "bearer",
-    credential_fields: [
-      {
-        key: "personal_access_token",
-        label: "Personal Access Token",
-        placeholder: "ghp_...",
-        help: "github.com/settings/tokens → Generate new token",
-        type: "password",
-      },
-    ],
-    tools: [
-      { name: "list_issues", description: "List issues in a repository", url: "https://api.github.com/repos/{owner}/{repo}/issues", method: "GET" },
-      { name: "create_issue", description: "Create an issue in a repository", url: "https://api.github.com/repos/{owner}/{repo}/issues", method: "POST" },
-    ],
-  },
-  {
-    id: "stripe",
-    name: "Stripe",
-    description: "Платежи, подписки, клиенты в Stripe",
-    icon: "💳",
-    color: "#635bff",
-    base_url: "https://api.stripe.com/v1",
-    auth_type: "bearer",
-    credential_fields: [
-      {
-        key: "secret_key",
-        label: "Secret Key",
-        placeholder: "sk_live_... or sk_test_...",
-        help: "dashboard.stripe.com/apikeys",
-        type: "password",
-      },
-    ],
-    tools: [
-      { name: "list_customers", description: "List Stripe customers", url: "https://api.stripe.com/v1/customers", method: "GET" },
-      { name: "create_payment_intent", description: "Create a payment intent", url: "https://api.stripe.com/v1/payment_intents", method: "POST" },
-    ],
-  },
-  {
-    id: "openweather",
-    name: "OpenWeather",
-    description: "Погода по координатам и городам",
-    icon: "☁️",
-    color: "#f97316",
-    base_url: "https://api.openweathermap.org/data/2.5",
-    auth_type: "api_key",
-    credential_fields: [
-      {
-        key: "api_key",
-        label: "API Key",
-        placeholder: "your-32-char-api-key",
-        help: "home.openweathermap.org/api_keys",
-        type: "password",
-      },
-    ],
-    tools: [
-      { name: "get_weather", description: "Get current weather for a city", url: "https://api.openweathermap.org/data/2.5/weather", method: "GET" },
     ],
   },
   {
@@ -488,32 +359,11 @@ const LIBRARY_PRESETS: LibraryPreset[] = [
       },
     ],
   },
-  {
-    id: "google_sheets",
-    name: "Google Sheets",
-    description: "Чтение и запись ячеек в таблицах Google",
-    icon: "📊",
-    color: "#0f9d58",
-    base_url: "https://sheets.googleapis.com/v4",
-    auth_type: "bearer",
-    credential_fields: [
-      {
-        key: "access_token",
-        label: "OAuth Access Token",
-        placeholder: "ya29....",
-        help: "Получи через OAuth 2.0 Playground или собственный OAuth flow",
-        type: "password",
-      },
-    ],
-    tools: [
-      { name: "read_range", description: "Read values from a spreadsheet range", url: "https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{range}", method: "GET" },
-      { name: "append_row", description: "Append a row to a spreadsheet", url: "https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{range}:append", method: "POST" },
-    ],
-  },
 ];
 
 export default function ToolsPage() {
   const router = useRouter();
+  const { projectId } = useProject();
   const [tools, setTools] = useState<Tool[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [tab, setTab] = useState<"installed" | "library">("installed");
@@ -526,7 +376,7 @@ export default function ToolsPage() {
 
   async function refresh() {
     try {
-      const [t, c] = await Promise.all([api.listTools(), api.listConnections()]);
+      const [t, c] = await Promise.all([api.listTools(projectId || undefined), api.listConnections(projectId || undefined)]);
       setTools((t as Tool[]) || []);
       setConnections((c as Connection[]) || []);
     } catch (e) {
@@ -536,7 +386,8 @@ export default function ToolsPage() {
 
   useEffect(() => {
     refresh();
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
 
   // Map each connection to its tools for quick count lookup
   const toolsByConnection = useMemo(() => {

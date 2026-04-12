@@ -68,6 +68,7 @@ export const api = {
     contextId?: string,
     conversationId?: string,
     model?: string,
+    projectId?: string,
   ) =>
     request("/api/builders/send", {
       method: "POST",
@@ -77,11 +78,13 @@ export const api = {
         context_id: contextId,
         conversation_id: conversationId,
         model: model || null,
+        project_id: projectId || null,
       }),
     }),
 
   // Agents
-  listAgents: () => request("/api/agents"),
+  listAgents: (projectId?: string) =>
+    request(`/api/agents${projectId ? `?project_id=${projectId}` : ""}`),
   getAgent: (id: string) => request(`/api/agents/${id}`),
   createAgent: (agent: Record<string, unknown>) =>
     request("/api/agents", { method: "POST", body: JSON.stringify(agent) }),
@@ -116,11 +119,12 @@ export const api = {
   getConnectionTools: (id: string) => request(`/api/connections/${id}/tools`),
 
   // Workflows
-  listWorkflows: () => request("/api/workflows"),
+  listWorkflows: (projectId?: string) =>
+    request(`/api/workflows${projectId ? `?project_id=${projectId}` : ""}`),
   getWorkflowLibrary: () => request("/api/workflows/library"),
   getWorkflow: (id: string) => request(`/api/workflows/${id}`),
-  createWorkflow: (workflow: Record<string, unknown>) =>
-    request("/api/workflows", { method: "POST", body: JSON.stringify(workflow) }),
+  createWorkflow: (workflow: Record<string, unknown>, projectId?: string) =>
+    request(`/api/workflows${projectId ? `?project_id=${projectId}` : ""}`, { method: "POST", body: JSON.stringify(workflow) }),
   updateWorkflow: (id: string, workflow: Record<string, unknown>) =>
     request(`/api/workflows/${id}`, { method: "PUT", body: JSON.stringify(workflow) }),
   deleteWorkflow: (id: string) =>
@@ -129,7 +133,13 @@ export const api = {
     request(`/api/workflows/${workflowId}/run`, { method: "POST" }),
 
   // Runs
-  listRuns: (status?: string) => request(`/api/runs${status ? `?status=${status}` : ""}`),
+  listRuns: (status?: string, projectId?: string) => {
+    const params = new URLSearchParams();
+    if (status) params.set("status", status);
+    if (projectId) params.set("project_id", projectId);
+    const qs = params.toString();
+    return request(`/api/runs${qs ? `?${qs}` : ""}`);
+  },
   getRun: (runId: string) => request(`/api/runs/${runId}`),
   getTokenStats: () => request("/api/runs/stats"),
 
@@ -146,6 +156,16 @@ export const api = {
     request(`/api/llm-providers/${id}/disconnect`, { method: "POST" }),
   getProviderModels: (provider: string) =>
     request(`/api/llm-providers/${provider}/models`),
+
+  // Workflow Triggers
+  listTriggers: (workflowId: string) =>
+    request(`/api/workflows/${workflowId}/triggers`),
+  createTrigger: (workflowId: string, data: Record<string, unknown>) =>
+    request(`/api/workflows/${workflowId}/triggers`, { method: "POST", body: JSON.stringify(data) }),
+  updateTrigger: (triggerId: string, data: Record<string, unknown>) =>
+    request(`/api/triggers/${triggerId}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteTrigger: (triggerId: string) =>
+    request(`/api/triggers/${triggerId}`, { method: "DELETE" }),
 
   // Knowledge Bases
   listKnowledgeBases: (projectId?: string) =>

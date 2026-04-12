@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
+import { useProject } from "@/contexts/ProjectContext";
 
 interface Message {
   id: string;
@@ -38,11 +39,19 @@ export default function BuilderChat({
   placeholder,
   onEntityCreated,
 }: BuilderChatProps) {
+  const { projectId } = useProject();
   const [convId, setConvId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
-  const [model, setModel] = useState<string>("");
+  const [model, setModelRaw] = useState<string>(() => {
+    if (typeof window !== "undefined") return localStorage.getItem("lastSelectedModel") || "";
+    return "";
+  });
+  function setModel(id: string) {
+    setModelRaw(id);
+    if (typeof window !== "undefined" && id) localStorage.setItem("lastSelectedModel", id);
+  }
   const [availableModels, setAvailableModels] = useState<ProviderModel[]>([]);
   const endRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -100,7 +109,13 @@ export default function BuilderChat({
       }
       if (cancelled) return;
       setAvailableModels(all);
-      if (all.length > 0 && !model) setModel(all[0].id);
+      // If we already loaded a model from localStorage and it exists in the
+      // list, keep it. Otherwise fall back to the first available model.
+      if (model && all.some((m) => m.id === model)) {
+        // keep current
+      } else if (all.length > 0) {
+        setModel(all[0].id);
+      }
     }
     loadModels();
     return () => {
@@ -134,6 +149,7 @@ export default function BuilderChat({
         contextId,
         convId || undefined,
         model || undefined,
+        projectId || undefined,
       )) as {
         conversation_id: string;
         message: Message;

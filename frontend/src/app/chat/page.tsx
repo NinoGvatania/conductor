@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useLayoutEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
+import { useProject } from "@/contexts/ProjectContext";
 
 interface Message { id: string; role: string; content: string; created_at: string; }
 
@@ -11,13 +12,21 @@ export default function ChatPage() {
 }
 
 function ChatContent() {
+  const { projectId } = useProject();
   const searchParams = useSearchParams();
   const convId = searchParams.get("id");
   const [activeConv, setActiveConv] = useState<string | null>(convId);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
-  const [model, setModel] = useState("claude-sonnet-4-6");
+  const [model, setModelRaw] = useState(() => {
+    if (typeof window !== "undefined") return localStorage.getItem("lastSelectedModel") || "claude-sonnet-4-6";
+    return "claude-sonnet-4-6";
+  });
+  function setModel(id: string) {
+    setModelRaw(id);
+    if (typeof window !== "undefined" && id) localStorage.setItem("lastSelectedModel", id);
+  }
   const [availableModels, setAvailableModels] = useState<Array<{ id: string; name: string; provider: string }>>([]);
   const messagesEnd = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -78,7 +87,7 @@ function ChatContent() {
     setMessages((prev) => [...prev, { id: "temp", role: "user", content: text, created_at: new Date().toISOString() }]);
 
     try {
-      const result = (await api.sendMessage(text, activeConv || undefined, undefined, model)) as {
+      const result = (await api.sendMessage(text, activeConv || undefined, projectId || undefined, model)) as {
         conversation_id: string;
         message: Message;
       };

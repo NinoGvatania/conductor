@@ -78,6 +78,23 @@ class Workflow(Base, TimestampMixin):
     definition_json: Mapped[str] = mapped_column(Text)
 
 
+class WorkflowTrigger(Base, TimestampMixin):
+    """Binds a workflow to an external event source (Telegram bot, webhook, etc).
+
+    When the trigger fires, the backend runs the workflow with the trigger's
+    payload as input_data and (for Telegram) sends the output back.
+    """
+    __tablename__ = "workflow_triggers"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workflow_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workflows.id", ondelete="CASCADE"), index=True)
+    trigger_type: Mapped[str] = mapped_column(String(50))  # "telegram" | "webhook"
+    name: Mapped[str] = mapped_column(String(255), default="")
+    config: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)  # {bot_token} for telegram
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    webhook_secret: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    last_triggered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class Run(Base, TimestampMixin):
     __tablename__ = "runs"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

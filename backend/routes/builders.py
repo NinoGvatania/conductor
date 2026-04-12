@@ -431,7 +431,11 @@ async def _collect_available_agents(db: AsyncSession) -> list[dict[str, str]]:
 
 
 async def _exec_create_workflow(
-    tool_input: dict[str, Any], db: AsyncSession, project_id: uuid.UUID | None
+    tool_input: dict[str, Any],
+    db: AsyncSession,
+    project_id: uuid.UUID | None,
+    provider: Any | None = None,
+    model_name: str | None = None,
 ) -> dict[str, Any]:
     from backend.core.workflow_generator import WorkflowGenerator
 
@@ -443,7 +447,7 @@ async def _exec_create_workflow(
     available_agents = await _collect_available_agents(db)
 
     try:
-        generator = WorkflowGenerator()
+        generator = WorkflowGenerator(provider=provider, model=model_name)
         workflow_def = await generator.generate(user_description, available_agents=available_agents)
         workflow_def.name = name  # prefer the name the LLM chose for the tool call
     except Exception as e:
@@ -466,7 +470,10 @@ async def _exec_create_workflow(
 
 
 async def _exec_update_workflow(
-    tool_input: dict[str, Any], db: AsyncSession
+    tool_input: dict[str, Any],
+    db: AsyncSession,
+    provider: Any | None = None,
+    model_name: str | None = None,
 ) -> dict[str, Any]:
     from backend.core.workflow_generator import WorkflowGenerator
 
@@ -483,7 +490,7 @@ async def _exec_update_workflow(
     available_agents = await _collect_available_agents(db)
 
     try:
-        generator = WorkflowGenerator()
+        generator = WorkflowGenerator(provider=provider, model=model_name)
         workflow_def = await generator.generate(user_description, available_agents=available_agents)
         if "name" in tool_input and tool_input["name"]:
             workflow_def.name = tool_input["name"]
@@ -512,6 +519,8 @@ async def _execute_builder_tool(
     tool_input: dict[str, Any],
     db: AsyncSession,
     project_id: uuid.UUID | None,
+    provider: Any | None = None,
+    model_name: str | None = None,
 ) -> dict[str, Any]:
     try:
         if tool_name == "create_agent":
@@ -519,9 +528,9 @@ async def _execute_builder_tool(
         if tool_name == "update_agent":
             return await _exec_update_agent(tool_input, db)
         if tool_name == "create_workflow":
-            return await _exec_create_workflow(tool_input, db, project_id)
+            return await _exec_create_workflow(tool_input, db, project_id, provider=provider, model_name=model_name)
         if tool_name == "update_workflow":
-            return await _exec_update_workflow(tool_input, db)
+            return await _exec_update_workflow(tool_input, db, provider=provider, model_name=model_name)
         return {"error": f"unknown tool: {tool_name}"}
     except Exception as e:
         logger.error("builder_tool_error", tool=tool_name, error=str(e))
@@ -691,7 +700,8 @@ async def send_builder_message(msg: BuilderMessage, db: AsyncSession = Depends(g
             tool_result_blocks: list[dict[str, Any]] = []
             for tc in response.tool_calls:
                 result = await _execute_builder_tool(
-                    tc["name"], tc.get("input", {}) or {}, db, project_uuid
+                    tc["name"], tc.get("input", {}) or {}, db, project_uuid,
+                    provider=provider, model_name=model_to_use,
                 )
                 tool_results_log.append({"tool": tc["name"], "result": result})
                 entity = result.get("entity") if isinstance(result, dict) else None

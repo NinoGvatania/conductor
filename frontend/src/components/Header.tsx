@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
+import { useProject } from "@/contexts/ProjectContext";
 
 function UserMenu() {
   const { user, signOut } = useAuth();
@@ -50,8 +51,8 @@ interface Project {
 }
 
 export default function Header() {
+  const { projectId, setProjectId } = useProject();
   const [projects, setProjects] = useState<Project[]>([]);
-  const [current, setCurrent] = useState<string>("");
   const [showDropdown, setShowDropdown] = useState(false);
   const [newName, setNewName] = useState("");
 
@@ -59,20 +60,24 @@ export default function Header() {
     api.listProjects().then((p) => {
       const list = p as Project[];
       setProjects(list);
-      if (list.length > 0 && !current) setCurrent(list[0].id);
+      // Auto-select the first project if nothing is selected yet
+      if (list.length > 0 && !projectId) {
+        setProjectId(list[0].id);
+      }
     }).catch(() => {});
-  }, [current]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleCreate() {
     if (!newName.trim()) return;
     const p = (await api.createProject(newName)) as Project;
     setProjects((prev) => [p, ...prev]);
-    setCurrent(p.id);
+    setProjectId(p.id);
     setNewName("");
     setShowDropdown(false);
   }
 
-  const currentProject = projects.find((p) => p.id === current);
+  const currentProject = projects.find((p) => p.id === projectId);
 
   return (
     <header className="h-12 flex items-center justify-between px-4 fixed top-0 left-0 right-0 z-50" style={{ background: "var(--bg-primary)", borderBottom: "1px solid var(--border)" }}>
@@ -93,9 +98,9 @@ export default function Header() {
               {projects.map((p) => (
                 <button
                   key={p.id}
-                  onClick={() => { setCurrent(p.id); setShowDropdown(false); }}
+                  onClick={() => { setProjectId(p.id); setShowDropdown(false); }}
                   className="w-full text-left px-3 py-2 text-sm transition-colors"
-                  style={{ color: current === p.id ? "var(--text-primary)" : "var(--text-secondary)", background: current === p.id ? "var(--bg-hover)" : "transparent" }}
+                  style={{ color: projectId === p.id ? "var(--text-primary)" : "var(--text-secondary)", background: projectId === p.id ? "var(--bg-hover)" : "transparent" }}
                 >
                   {p.name}
                 </button>

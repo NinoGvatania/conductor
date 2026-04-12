@@ -164,6 +164,18 @@ class OrchestrationEngine:
                 step = await self._execute_deterministic_node(node, run_state)
             elif node.type == NodeType.evaluator:
                 step = await self._execute_evaluator_node(node, run_state)
+            elif node.type == NodeType.trigger:
+                # Trigger nodes are passthrough entry points — they just forward
+                # whatever input_data the trigger handler injected into run_state.
+                # The node's config (trigger_type, bot_token, etc.) is used only
+                # by the webhook/telegram handler at invocation time, not by the
+                # engine at run time.
+                step = StepResult(
+                    node_id=node.id,
+                    status=StepStatus.completed,
+                    agent_name=None,
+                    output=run_state.input_data,
+                )
             else:
                 step = StepResult(
                     node_id=node.id,

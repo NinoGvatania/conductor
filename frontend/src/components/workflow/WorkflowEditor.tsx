@@ -19,18 +19,15 @@ import { api } from "@/lib/api";
 
 const nodeTypes = { custom: WorkflowNode };
 
-const BUILTIN_TEMPLATES = [
-  { nodeType: "deterministic", label: "Intake", agentName: null },
-  { nodeType: "agent", label: "Classify", agentName: "classifier" },
-  { nodeType: "agent", label: "Extract", agentName: "extractor" },
-  { nodeType: "agent", label: "Validate", agentName: "validator" },
-  { nodeType: "agent", label: "Risk Score", agentName: "risk_scorer" },
-  { nodeType: "agent", label: "Decide", agentName: "decision_maker" },
-  { nodeType: "agent", label: "Draft", agentName: "draft_writer" },
-  { nodeType: "router", label: "Router", agentName: null },
-  { nodeType: "human", label: "Human Review", agentName: null },
-  { nodeType: "parallel", label: "Parallel", agentName: null },
+const TRIGGER_TEMPLATES = [
+  { nodeType: "trigger", label: "Telegram Bot", agentName: null, triggerType: "telegram" },
+  { nodeType: "trigger", label: "Webhook", agentName: null, triggerType: "webhook" },
+  { nodeType: "trigger", label: "Manual Input", agentName: null, triggerType: "manual" },
 ];
+
+// Built-in templates removed — they confused users because they couldn't
+// be configured and their purpose was unclear. The Library now shows only
+// Triggers (entry points) and the user's custom agents.
 
 interface WorkflowEditorProps {
   initialNodes?: Node[];
@@ -53,6 +50,10 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
   // Agent library modal (replaces the old permanent left sidebar)
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [librarySearch, setLibrarySearch] = useState("");
+
+  // Trigger config panel — opens when clicking a trigger node
+  const [editingTrigger, setEditingTrigger] = useState<Node | null>(null);
+  const [triggerConfig, setTriggerConfig] = useState<Record<string, string>>({});
 
   useEffect(() => {
     api.listAgents().then((agents) => {
@@ -130,12 +131,17 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
     setEdgeDescription("");
   }
 
-  function addNode(template: { nodeType: string; label: string; agentName: string | null }) {
+  function addNode(template: { nodeType: string; label: string; agentName: string | null; triggerType?: string }) {
     const id = `node_${Date.now()}`;
     const newNode: Node = {
       id, type: "custom",
-      position: { x: 250 + Math.random() * 200, y: 100 + nodes.length * 120 },
-      data: { label: template.label, nodeType: template.nodeType, agentName: template.agentName },
+      position: { x: 250 + Math.random() * 200, y: template.nodeType === "trigger" ? 30 : 100 + nodes.length * 120 },
+      data: {
+        label: template.label,
+        nodeType: template.nodeType,
+        agentName: template.agentName,
+        triggerType: template.triggerType || undefined,
+      },
     };
     setNodes((nds) => [...nds, newNode]);
   }
@@ -213,6 +219,142 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
         </div>
       )}
 
+      {/* Trigger config modal */}
+      {editingTrigger && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.6)" }}
+          onClick={() => setEditingTrigger(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-lg"
+            style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 flex items-center gap-3" style={{ borderBottom: "1px solid var(--border)" }}>
+              <span className="text-lg">
+                {editingTrigger.data.triggerType === "telegram" ? "✈️" : editingTrigger.data.triggerType === "webhook" ? "🔗" : "▶️"}
+              </span>
+              <div>
+                <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                  Configure {String(editingTrigger.data.triggerType || "trigger")} trigger
+                </h3>
+                <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                  {editingTrigger.data.triggerType === "telegram"
+                    ? "Бот будет получать сообщения и отвечать через воркфлоу"
+                    : editingTrigger.data.triggerType === "webhook"
+                    ? "Внешние сервисы будут отправлять POST-запросы"
+                    : "Запуск вручную с вводом данных"}
+                </p>
+              </div>
+            </div>
+
+            <div className="px-5 py-4 space-y-3">
+              {/* Name */}
+              <div>
+                <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Name</label>
+                <input
+                  value={triggerConfig.label || ""}
+                  onChange={(e) => setTriggerConfig((p) => ({ ...p, label: e.target.value }))}
+                  placeholder={String(editingTrigger.data.triggerType) === "telegram" ? "My Telegram Bot" : "Webhook trigger"}
+                  className="w-full px-3 py-2 rounded-md text-sm"
+                  style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
+                />
+              </div>
+
+              {/* Telegram-specific */}
+              {editingTrigger.data.triggerType === "telegram" && (
+                <>
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>
+                      Bot Token <span style={{ color: "#ee4444" }}>*</span>
+                    </label>
+                    <input
+                      type="password"
+                      value={triggerConfig.bot_token || ""}
+                      onChange={(e) => setTriggerConfig((p) => ({ ...p, bot_token: e.target.value }))}
+                      placeholder="123456:ABC-DEF..."
+                      className="w-full px-3 py-2 rounded-md text-sm font-mono"
+                      style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
+                    />
+                    <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+                      Получи у @BotFather в Telegram
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>
+                      Public URL (для авторегистрации webhook)
+                    </label>
+                    <input
+                      value={triggerConfig.public_url || ""}
+                      onChange={(e) => setTriggerConfig((p) => ({ ...p, public_url: e.target.value }))}
+                      placeholder="https://your-server.com"
+                      className="w-full px-3 py-2 rounded-md text-sm"
+                      style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
+                    />
+                    <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+                      Публичный адрес бэкенда (ngrok, cloudflare tunnel). Если не указан — зарегистрируй webhook вручную после сохранения.
+                    </p>
+                  </div>
+                </>
+              )}
+
+              {/* Webhook info */}
+              {editingTrigger.data.triggerType === "webhook" && (
+                <p className="text-xs rounded-md p-3" style={{ background: "var(--bg-secondary)", color: "var(--text-muted)" }}>
+                  Webhook URL и секрет будут сгенерированы автоматически при сохранении воркфлоу.
+                  Внешний сервис (AmoCRM, Stripe, GitHub) будет слать POST на этот URL.
+                  Настрой через страницу Triggers после сохранения.
+                </p>
+              )}
+
+              {/* Manual info */}
+              {editingTrigger.data.triggerType === "manual" && (
+                <p className="text-xs rounded-md p-3" style={{ background: "var(--bg-secondary)", color: "var(--text-muted)" }}>
+                  Manual trigger запускается из оркестратора (/chat) или через API.
+                  Данные вводятся при каждом запуске.
+                </p>
+              )}
+            </div>
+
+            <div className="px-5 py-3 flex justify-end gap-2" style={{ borderTop: "1px solid var(--border)" }}>
+              <button
+                onClick={() => setEditingTrigger(null)}
+                className="text-xs px-3 py-1.5 rounded-md"
+                style={{ color: "var(--text-muted)", border: "1px solid var(--border)" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  // Write config back into the node's data
+                  setNodes((nds) =>
+                    nds.map((n) =>
+                      n.id === editingTrigger.id
+                        ? {
+                            ...n,
+                            data: {
+                              ...n.data,
+                              label: triggerConfig.label || n.data.label,
+                              bot_token: triggerConfig.bot_token || undefined,
+                              public_url: triggerConfig.public_url || undefined,
+                            },
+                          }
+                        : n,
+                    ),
+                  );
+                  setEditingTrigger(null);
+                }}
+                className="text-xs px-3 py-1.5 rounded-md font-medium"
+                style={{ background: "var(--text-primary)", color: "var(--bg-primary)" }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Agent library modal — opened from the floating toolbar */}
       {libraryOpen && (
         <div
@@ -255,20 +397,22 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
                   label.toLowerCase().includes(q) ||
                   extra.toLowerCase().includes(q);
 
-                const filteredBuiltin = BUILTIN_TEMPLATES.filter((t) =>
-                  matches(t.label, t.agentName || t.nodeType),
+                const filteredTriggers = TRIGGER_TEMPLATES.filter((t) =>
+                  matches(t.label, t.triggerType),
                 );
                 const filteredCustom = customAgents.filter((a) => matches(a.name, a.description));
 
+                const triggerIcons: Record<string, string> = { telegram: "✈️", webhook: "🔗", manual: "▶️" };
+
                 return (
                   <>
-                    {filteredBuiltin.length > 0 && (
+                    {filteredTriggers.length > 0 && (
                       <div>
                         <p className="text-[10px] font-medium uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>
-                          Built-in
+                          Triggers — entry point
                         </p>
                         <div className="grid grid-cols-2 gap-2">
-                          {filteredBuiltin.map((t) => (
+                          {filteredTriggers.map((t) => (
                             <button
                               key={t.label}
                               onClick={() => {
@@ -278,14 +422,17 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
                               }}
                               className="text-left px-3 py-2 rounded-md text-xs"
                               style={{
-                                color: "var(--text-secondary)",
+                                color: "#f97316",
                                 background: "var(--bg-secondary)",
-                                border: "1px solid var(--border)",
+                                border: "1px solid #f9731640",
                               }}
                             >
-                              <div className="font-medium" style={{ color: "var(--text-primary)" }}>{t.label}</div>
+                              <div className="flex items-center gap-1.5">
+                                <span>{triggerIcons[t.triggerType] || "⚡"}</span>
+                                <span className="font-medium">{t.label}</span>
+                              </div>
                               <div className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>
-                                {t.nodeType}
+                                {t.triggerType === "telegram" ? "Bot messages" : t.triggerType === "webhook" ? "External POST" : "Run with input"}
                               </div>
                             </button>
                           ))}
@@ -324,7 +471,7 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
                         </div>
                       </div>
                     )}
-                    {filteredBuiltin.length === 0 && filteredCustom.length === 0 && (
+                    {filteredTriggers.length === 0 && filteredCustom.length === 0 && (
                       <p className="text-xs text-center py-8" style={{ color: "var(--text-muted)" }}>
                         No agents match your search
                       </p>
@@ -344,7 +491,17 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
           onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           onEdgeClick={onEdgeClick}
-          onNodeClick={(_, node) => setSelectedNode(node.id)}
+          onNodeClick={(_, node) => {
+            setSelectedNode(node.id);
+            if (node.data.nodeType === "trigger") {
+              setEditingTrigger(node);
+              setTriggerConfig({
+                bot_token: (node.data.bot_token as string) || "",
+                public_url: (node.data.public_url as string) || "",
+                label: (node.data.label as string) || "",
+              });
+            }
+          }}
           onPaneClick={() => setSelectedNode(null)}
           nodeTypes={nodeTypes} fitView
           style={{ background: "#0a0a0f" }}

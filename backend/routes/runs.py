@@ -89,10 +89,12 @@ async def get_token_stats(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("")
-async def list_runs(status: str | None = None, db: AsyncSession = Depends(get_db)):
+async def list_runs(status: str | None = None, project_id: str | None = None, db: AsyncSession = Depends(get_db)):
     query = select(Run).order_by(Run.created_at.desc())
     if status:
         query = query.where(Run.status == status)
+    if project_id:
+        query = query.where(Run.project_id == uuid.UUID(project_id))
     result = await db.execute(query)
     return [
         {

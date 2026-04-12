@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { useProject } from "@/contexts/ProjectContext";
 import BuilderChat from "@/components/BuilderChat";
 
 interface Agent {
@@ -20,13 +21,14 @@ interface Agent {
 const tierColors: Record<string, string> = { fast: "#0cce6b", balanced: "#3b82f6", powerful: "#6366f1" };
 
 export default function AgentsPage() {
+  const { projectId } = useProject();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [tab, setTab] = useState<"my" | "library">("my");
   const [search, setSearch] = useState("");
 
   async function refreshAgents() {
     try {
-      const d = await api.listAgents();
+      const d = await api.listAgents(projectId || undefined);
       setAgents(d as Agent[]);
     } catch (e) {
       console.error(e);
@@ -35,7 +37,8 @@ export default function AgentsPage() {
 
   useEffect(() => {
     refreshAgents();
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
 
   const filtered = agents
     .filter((a) => {

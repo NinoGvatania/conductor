@@ -3,12 +3,14 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { useProject } from "@/contexts/ProjectContext";
 import BuilderChat from "@/components/BuilderChat";
 import ToolPicker from "@/components/ToolPicker";
 import KnowledgePicker from "@/components/KnowledgePicker";
 
 export default function NewAgentPage() {
   const router = useRouter();
+  const { projectId } = useProject();
   const [saving, setSaving] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showToolPicker, setShowToolPicker] = useState(false);
@@ -88,6 +90,7 @@ export default function NewAgentPage() {
         max_tokens: form.max_tokens === "" ? null : form.max_tokens,
         output_schema: {},
         tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
+        project_id: projectId || undefined,
       });
       router.push("/agents");
     } catch (e) { alert(e instanceof Error ? e.message : "Failed"); }
