@@ -260,6 +260,7 @@ function EditorContent() {
             initialNodes={initialNodes}
             initialEdges={initialEdges}
             onSave={handleSave}
+            projectId={projectId || undefined}
           />
         </div>
         {showChat && (

@@ -4,7 +4,7 @@ from typing import Any
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.agents.builtin.classifier import CLASSIFIER_AGENT
@@ -106,7 +106,7 @@ async def list_providers():
 
 
 @router.get("")
-async def list_agents(include_builtin: bool = True, project_id: str | None = None, db: AsyncSession = Depends(get_db)):
+async def list_agents(include_builtin: bool = False, project_id: str | None = None, db: AsyncSession = Depends(get_db)):
     agents = []
     if include_builtin:
         for a in BUILTIN_AGENTS.values():
@@ -124,6 +124,7 @@ async def list_agents(include_builtin: bool = True, project_id: str | None = Non
         query = select(AgentConfig).order_by(AgentConfig.created_at.desc())
         if project_id:
             query = query.where(AgentConfig.project_id == uuid.UUID(project_id))
+        query = query.where(or_(AgentConfig.status == "active", AgentConfig.status.is_(None)))
         result = await db.execute(query)
         for a in result.scalars().all():
             agents.append(_serialize(a))

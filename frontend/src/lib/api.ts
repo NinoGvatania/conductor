@@ -141,7 +141,8 @@ export const api = {
     return request(`/api/runs${qs ? `?${qs}` : ""}`);
   },
   getRun: (runId: string) => request(`/api/runs/${runId}`),
-  getTokenStats: () => request("/api/runs/stats"),
+  getTokenStats: (projectId?: string) =>
+    request(`/api/runs/stats${projectId ? `?project_id=${projectId}` : ""}`),
 
   // LLM Providers
   getProviderCatalog: () => request("/api/llm-providers/catalog"),
