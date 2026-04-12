@@ -19,6 +19,12 @@ import { api } from "@/lib/api";
 
 const nodeTypes = { custom: WorkflowNode };
 
+const TRIGGER_TEMPLATES = [
+  { nodeType: "trigger", label: "Telegram Bot", agentName: null, triggerType: "telegram" },
+  { nodeType: "trigger", label: "Webhook", agentName: null, triggerType: "webhook" },
+  { nodeType: "trigger", label: "Manual Input", agentName: null, triggerType: "manual" },
+];
+
 const BUILTIN_TEMPLATES = [
   { nodeType: "deterministic", label: "Intake", agentName: null },
   { nodeType: "agent", label: "Classify", agentName: "classifier" },
@@ -130,12 +136,17 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
     setEdgeDescription("");
   }
 
-  function addNode(template: { nodeType: string; label: string; agentName: string | null }) {
+  function addNode(template: { nodeType: string; label: string; agentName: string | null; triggerType?: string }) {
     const id = `node_${Date.now()}`;
     const newNode: Node = {
       id, type: "custom",
-      position: { x: 250 + Math.random() * 200, y: 100 + nodes.length * 120 },
-      data: { label: template.label, nodeType: template.nodeType, agentName: template.agentName },
+      position: { x: 250 + Math.random() * 200, y: template.nodeType === "trigger" ? 30 : 100 + nodes.length * 120 },
+      data: {
+        label: template.label,
+        nodeType: template.nodeType,
+        agentName: template.agentName,
+        triggerType: template.triggerType || undefined,
+      },
     };
     setNodes((nds) => [...nds, newNode]);
   }
@@ -255,13 +266,51 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
                   label.toLowerCase().includes(q) ||
                   extra.toLowerCase().includes(q);
 
+                const filteredTriggers = TRIGGER_TEMPLATES.filter((t) =>
+                  matches(t.label, t.triggerType),
+                );
                 const filteredBuiltin = BUILTIN_TEMPLATES.filter((t) =>
                   matches(t.label, t.agentName || t.nodeType),
                 );
                 const filteredCustom = customAgents.filter((a) => matches(a.name, a.description));
 
+                const triggerIcons: Record<string, string> = { telegram: "✈️", webhook: "🔗", manual: "▶️" };
+
                 return (
                   <>
+                    {filteredTriggers.length > 0 && (
+                      <div>
+                        <p className="text-[10px] font-medium uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>
+                          Triggers — entry point
+                        </p>
+                        <div className="grid grid-cols-2 gap-2">
+                          {filteredTriggers.map((t) => (
+                            <button
+                              key={t.label}
+                              onClick={() => {
+                                addNode(t);
+                                setLibraryOpen(false);
+                                setLibrarySearch("");
+                              }}
+                              className="text-left px-3 py-2 rounded-md text-xs"
+                              style={{
+                                color: "#f97316",
+                                background: "var(--bg-secondary)",
+                                border: "1px solid #f9731640",
+                              }}
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <span>{triggerIcons[t.triggerType] || "⚡"}</span>
+                                <span className="font-medium">{t.label}</span>
+                              </div>
+                              <div className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>
+                                {t.triggerType === "telegram" ? "Bot messages" : t.triggerType === "webhook" ? "External POST" : "Run with input"}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     {filteredBuiltin.length > 0 && (
                       <div>
                         <p className="text-[10px] font-medium uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>
@@ -324,7 +373,7 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
                         </div>
                       </div>
                     )}
-                    {filteredBuiltin.length === 0 && filteredCustom.length === 0 && (
+                    {filteredTriggers.length === 0 && filteredBuiltin.length === 0 && filteredCustom.length === 0 && (
                       <p className="text-xs text-center py-8" style={{ color: "var(--text-muted)" }}>
                         No agents match your search
                       </p>
