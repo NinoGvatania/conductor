@@ -60,6 +60,10 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [librarySearch, setLibrarySearch] = useState("");
 
+  // Trigger config panel — opens when clicking a trigger node
+  const [editingTrigger, setEditingTrigger] = useState<Node | null>(null);
+  const [triggerConfig, setTriggerConfig] = useState<Record<string, string>>({});
+
   useEffect(() => {
     api.listAgents().then((agents) => {
       const custom = (agents as Array<Record<string, unknown>>)
@@ -219,6 +223,142 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
                   Save
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Trigger config modal */}
+      {editingTrigger && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.6)" }}
+          onClick={() => setEditingTrigger(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-lg"
+            style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 flex items-center gap-3" style={{ borderBottom: "1px solid var(--border)" }}>
+              <span className="text-lg">
+                {editingTrigger.data.triggerType === "telegram" ? "✈️" : editingTrigger.data.triggerType === "webhook" ? "🔗" : "▶️"}
+              </span>
+              <div>
+                <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                  Configure {String(editingTrigger.data.triggerType || "trigger")} trigger
+                </h3>
+                <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                  {editingTrigger.data.triggerType === "telegram"
+                    ? "Бот будет получать сообщения и отвечать через воркфлоу"
+                    : editingTrigger.data.triggerType === "webhook"
+                    ? "Внешние сервисы будут отправлять POST-запросы"
+                    : "Запуск вручную с вводом данных"}
+                </p>
+              </div>
+            </div>
+
+            <div className="px-5 py-4 space-y-3">
+              {/* Name */}
+              <div>
+                <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>Name</label>
+                <input
+                  value={triggerConfig.label || ""}
+                  onChange={(e) => setTriggerConfig((p) => ({ ...p, label: e.target.value }))}
+                  placeholder={String(editingTrigger.data.triggerType) === "telegram" ? "My Telegram Bot" : "Webhook trigger"}
+                  className="w-full px-3 py-2 rounded-md text-sm"
+                  style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
+                />
+              </div>
+
+              {/* Telegram-specific */}
+              {editingTrigger.data.triggerType === "telegram" && (
+                <>
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>
+                      Bot Token <span style={{ color: "#ee4444" }}>*</span>
+                    </label>
+                    <input
+                      type="password"
+                      value={triggerConfig.bot_token || ""}
+                      onChange={(e) => setTriggerConfig((p) => ({ ...p, bot_token: e.target.value }))}
+                      placeholder="123456:ABC-DEF..."
+                      className="w-full px-3 py-2 rounded-md text-sm font-mono"
+                      style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
+                    />
+                    <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+                      Получи у @BotFather в Telegram
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: "var(--text-muted)" }}>
+                      Public URL (для авторегистрации webhook)
+                    </label>
+                    <input
+                      value={triggerConfig.public_url || ""}
+                      onChange={(e) => setTriggerConfig((p) => ({ ...p, public_url: e.target.value }))}
+                      placeholder="https://your-server.com"
+                      className="w-full px-3 py-2 rounded-md text-sm"
+                      style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
+                    />
+                    <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+                      Публичный адрес бэкенда (ngrok, cloudflare tunnel). Если не указан — зарегистрируй webhook вручную после сохранения.
+                    </p>
+                  </div>
+                </>
+              )}
+
+              {/* Webhook info */}
+              {editingTrigger.data.triggerType === "webhook" && (
+                <p className="text-xs rounded-md p-3" style={{ background: "var(--bg-secondary)", color: "var(--text-muted)" }}>
+                  Webhook URL и секрет будут сгенерированы автоматически при сохранении воркфлоу.
+                  Внешний сервис (AmoCRM, Stripe, GitHub) будет слать POST на этот URL.
+                  Настрой через страницу Triggers после сохранения.
+                </p>
+              )}
+
+              {/* Manual info */}
+              {editingTrigger.data.triggerType === "manual" && (
+                <p className="text-xs rounded-md p-3" style={{ background: "var(--bg-secondary)", color: "var(--text-muted)" }}>
+                  Manual trigger запускается из оркестратора (/chat) или через API.
+                  Данные вводятся при каждом запуске.
+                </p>
+              )}
+            </div>
+
+            <div className="px-5 py-3 flex justify-end gap-2" style={{ borderTop: "1px solid var(--border)" }}>
+              <button
+                onClick={() => setEditingTrigger(null)}
+                className="text-xs px-3 py-1.5 rounded-md"
+                style={{ color: "var(--text-muted)", border: "1px solid var(--border)" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  // Write config back into the node's data
+                  setNodes((nds) =>
+                    nds.map((n) =>
+                      n.id === editingTrigger.id
+                        ? {
+                            ...n,
+                            data: {
+                              ...n.data,
+                              label: triggerConfig.label || n.data.label,
+                              bot_token: triggerConfig.bot_token || undefined,
+                              public_url: triggerConfig.public_url || undefined,
+                            },
+                          }
+                        : n,
+                    ),
+                  );
+                  setEditingTrigger(null);
+                }}
+                className="text-xs px-3 py-1.5 rounded-md font-medium"
+                style={{ background: "var(--text-primary)", color: "var(--bg-primary)" }}
+              >
+                Save
+              </button>
             </div>
           </div>
         </div>
@@ -393,7 +533,17 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
           onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           onEdgeClick={onEdgeClick}
-          onNodeClick={(_, node) => setSelectedNode(node.id)}
+          onNodeClick={(_, node) => {
+            setSelectedNode(node.id);
+            if (node.data.nodeType === "trigger") {
+              setEditingTrigger(node);
+              setTriggerConfig({
+                bot_token: (node.data.bot_token as string) || "",
+                public_url: (node.data.public_url as string) || "",
+                label: (node.data.label as string) || "",
+              });
+            }
+          }}
           onPaneClick={() => setSelectedNode(null)}
           nodeTypes={nodeTypes} fitView
           style={{ background: "#0a0a0f" }}

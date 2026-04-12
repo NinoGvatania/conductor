@@ -50,6 +50,8 @@ function parseWorkflowDefinition(definitionJson: string): LoadedWorkflow | null 
         nodeType: n.type,
         agentName: n.agent_name,
         triggerType: n.config?.trigger_type || undefined,
+        bot_token: n.config?.bot_token || undefined,
+        public_url: n.config?.public_url || undefined,
       },
     }));
 
@@ -152,8 +154,10 @@ function EditorContent() {
         // For trigger nodes, store trigger config (type, bot_token etc) in
         // the node's config dict so the backend trigger handler can read it.
         const config: Record<string, unknown> = {};
-        if (nodeType === "trigger" && n.data.triggerType) {
-          config.trigger_type = n.data.triggerType;
+        if (nodeType === "trigger") {
+          if (n.data.triggerType) config.trigger_type = n.data.triggerType;
+          if (n.data.bot_token) config.bot_token = n.data.bot_token;
+          if (n.data.public_url) config.public_url = n.data.public_url;
         }
         return {
           id: n.id,
