@@ -46,18 +46,6 @@ def _build_orchestrator_tools() -> list[dict[str, Any]]:
             },
         },
         {
-            "name": "run_tool",
-            "description": "Execute an API tool directly",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "tool_name": {"type": "string"},
-                    "arguments": {"type": "object"},
-                },
-                "required": ["tool_name", "arguments"],
-            },
-        },
-        {
             "name": "start_workflow",
             "description": "Start a saved workflow by name or ID",
             "input_schema": {
@@ -69,29 +57,57 @@ def _build_orchestrator_tools() -> list[dict[str, Any]]:
                 "required": ["workflow_name"],
             },
         },
+        {
+            "name": "respond_directly",
+            "description": "Send a direct text response to the user WITHOUT calling any agent or tool. Use ONLY for: (1) meta questions about what agents/tools exist, (2) clarification requests when required info is missing, (3) error explanations. For ANY real action (create, update, read, search) — use run_agent instead.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string", "description": "The response text to send to the user"},
+                },
+                "required": ["message"],
+            },
+        },
     ]
 
 
 async def _build_system_prompt(db: AsyncSession) -> str:
-    agents = (await db.execute(select(AgentConfig.name))).scalars().all()
+    agent_rows = (await db.execute(select(AgentConfig.name, AgentConfig.description))).all()
     tools = (await db.execute(select(Tool.name))).scalars().all()
     workflows = (await db.execute(select(Workflow.name))).scalars().all()
 
-    agent_list = ", ".join(agents) if agents else "classifier, extractor, validator, risk_scorer, decision_maker, draft_writer"
+    if agent_rows:
+        agent_list = "\n".join(
+            f"  - {name}: {description or 'no description'}"
+            for name, description in agent_rows
+        )
+    else:
+        agent_list = "  - classifier, extractor, validator, risk_scorer, decision_maker, draft_writer"
     tool_list = ", ".join(tools) if tools else "(no tools)"
     wf_list = ", ".join(workflows) if workflows else "(no workflows)"
 
     return f"""You are AgentFlow orchestrator. You manage AI agents, tools, and workflows.
 
-Available agents: {agent_list}
+Available agents (name: description):
+{agent_list}
+
 Available tools: {tool_list}
 Available workflows: {wf_list}
 
-When the user gives you a task, use run_agent, run_tool, or start_workflow to execute.
+RULES — follow strictly:
+1. NEVER answer task requests from memory or conversation history. Always delegate to the appropriate agent or tool.
+2. Read agent descriptions carefully to pick the RIGHT agent for each task.
+3. For ANY action involving tasks, issues, trackers, priorities, statuses, comments, deadlines, assignees, followers — call run_agent with the agent whose description matches.
+4. Use respond_directly ONLY for meta questions (e.g. "what agents exist", "how does X work").
+5. If the user wants to change, update, create or read ANYTHING — ALWAYS call run_agent, never guess or recall.
+6. CRITICAL: Never report success or results without having called run_agent first. respond_directly is NOT for action results.
+7. If the task key (e.g. IGIL-1) is not mentioned but was used recently in conversation — include it in the agent task description.
+
 Always respond in the user's language. Be concise."""
 
 
 async def _execute_tool_call(tool_name: str, tool_input: dict[str, Any], db: AsyncSession) -> str:
+    logger.info("orchestrator_tool_call", tool=tool_name, input=tool_input)
     try:
         if tool_name == "run_agent":
             from backend.core.agents.runner import AgentRunner
@@ -206,6 +222,9 @@ async def _execute_tool_call(tool_name: str, tool_input: dict[str, Any], db: Asy
                 "tokens": run_state.total_tokens,
             }, default=str)
 
+        if tool_name == "respond_directly":
+            return json.dumps({"direct_response": tool_input.get("message", "")})
+
         return json.dumps({"error": f"Unknown tool: {tool_name}"})
     except Exception as e:
         logger.error("tool_execution_error", tool=tool_name, error=str(e))
@@ -292,11 +311,13 @@ async def send_message(msg: MessageSend, db: AsyncSession = Depends(get_db)):
     model_router = ModelRouter()
     orchestrator_tools = _build_orchestrator_tools()
 
+    is_openai = selected_model.startswith(("gpt", "o3", "o1"))
     request = LLMRequest(
         model=msg.model or model_router.resolve("balanced"),
         system_prompt=await _build_system_prompt(db),
         messages=messages,
         tools=orchestrator_tools,
+        tool_choice=None if is_openai else "any",
         temperature=0.3,
         max_tokens=32000,
     )
@@ -307,29 +328,39 @@ async def send_message(msg: MessageSend, db: AsyncSession = Depends(get_db)):
         response = await provider.complete(request)
 
         if response.tool_calls:
-            tool_results = []
-            for tc in response.tool_calls:
-                result = await _execute_tool_call(tc["name"], tc["input"], db)
-                tool_results.append({"tool": tc["name"], "result": json.loads(result)})
-
-            initial_response = response.content or ""
-            results_json = json.dumps(tool_results, ensure_ascii=False, default=str)
-            summary_request = LLMRequest(
-                model=msg.model or model_router.resolve("balanced"),
-                system_prompt="Summarize tool results in natural language. Use the user's language. Be concise. Don't show raw JSON.",
-                messages=[
-                    *messages,
-                    {"role": "assistant", "content": initial_response},
-                    {"role": "user", "content": f"Tool execution results:\n{results_json}\n\nSummarize."},
-                ],
-                temperature=0.3,
-                max_tokens=32000,
+            # Check if the only tool call is respond_directly — skip summarization
+            direct = next(
+                (tc for tc in response.tool_calls if tc["name"] == "respond_directly"),
+                None,
             )
-            try:
-                summary = await provider.complete(summary_request)
-                assistant_content = (initial_response + "\n\n" + summary.content).strip() if initial_response else summary.content
-            except Exception:
-                assistant_content = initial_response or "Tools executed."
+            if direct and len(response.tool_calls) == 1:
+                assistant_content = direct["input"].get("message", "")
+            else:
+                tool_results = []
+                for tc in response.tool_calls:
+                    if tc["name"] == "respond_directly":
+                        continue
+                    result = await _execute_tool_call(tc["name"], tc["input"], db)
+                    tool_results.append({"tool": tc["name"], "result": json.loads(result)})
+
+                initial_response = response.content or ""
+                results_json = json.dumps(tool_results, ensure_ascii=False, default=str)
+                summary_request = LLMRequest(
+                    model=msg.model or model_router.resolve("balanced"),
+                    system_prompt="Summarize tool results in natural language. Use the user's language. Be concise. Don't show raw JSON.",
+                    messages=[
+                        *messages,
+                        {"role": "assistant", "content": initial_response},
+                        {"role": "user", "content": f"Tool execution results:\n{results_json}\n\nSummarize."},
+                    ],
+                    temperature=0.3,
+                    max_tokens=32000,
+                )
+                try:
+                    summary = await provider.complete(summary_request)
+                    assistant_content = (initial_response + "\n\n" + summary.content).strip() if initial_response else summary.content
+                except Exception:
+                    assistant_content = initial_response or "Tools executed."
         else:
             assistant_content = response.content
 

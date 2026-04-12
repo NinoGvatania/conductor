@@ -52,6 +52,8 @@ interface LibraryPreset {
     description: string;
     url: string;
     method: string;
+    headers?: Record<string, string>;
+    body_template?: Record<string, unknown>;
   }>;
 }
 
@@ -209,6 +211,284 @@ const LIBRARY_PRESETS: LibraryPreset[] = [
     ],
   },
   {
+    id: "yandex_tracker",
+    name: "Yandex Tracker",
+    description: "Полное управление задачами, очередями, комментариями, чеклистами, ссылками, ворклогами и проектами в Яндекс Трекере",
+    icon: "📋",
+    color: "#FC3F1D",
+    base_url: "https://api.tracker.yandex.net",
+    auth_type: "bearer",
+    credential_fields: [
+      {
+        key: "oauth_token",
+        label: "OAuth Token",
+        placeholder: "AQA...",
+        help: "oauth.yandex.ru → создай приложение с правом tracker:write, получи токен",
+        type: "password",
+      },
+      {
+        key: "org_id",
+        label: "ID организации",
+        placeholder: "123456",
+        help: "Трекер → Администрирование → Организации (число). Работает для Яндекс 360 и Yandex Cloud",
+        type: "text",
+      },
+    ],
+    tools: [
+      // ── Issues ──────────────────────────────────────────────────────────
+      {
+        name: "tracker_get_issue",
+        description: "Получить задачу Яндекс Трекера по ключу (например TEST-123). Возвращает заголовок, описание, статус, исполнителя, приоритет.",
+        url: "/v3/issues/{issue_key}",
+        method: "GET",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}" },
+      },
+      {
+        name: "tracker_create_issue",
+        description: "Создать новую задачу в Яндекс Трекере. ОБЯЗАТЕЛЬНЫЕ поля: summary (заголовок) и queue (ключ очереди, например TEST или SUPPORT). Если пользователь не указал ключ очереди — ОБЯЗАТЕЛЬНО спроси его перед вызовом, иначе API вернёт ошибку. Опционально: description, assignee (логин пользователя — НЕ 'me', нужен реальный логин; вызови tracker_get_myself чтобы узнать логин текущего пользователя), priority (сначала вызови tracker_get_priorities чтобы узнать реальные ключи — они отличаются по организации; передавай поле key из ответа), type, tags, deadline (дедлайн в формате YYYY-MM-DD, например '2026-04-13' для завтра).",
+        url: "/v3/issues/",
+        method: "POST",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}", "Content-Type": "application/json" },
+      },
+      {
+        name: "tracker_update_issue",
+        description: "Обновить поля задачи Яндекс Трекера: summary, description, assignee, priority, type, tags, deadline (YYYY-MM-DD), start (дата начала, YYYY-MM-DD) и др. НЕ меняет статус — для смены статуса используй tracker_execute_transition. Поле assignee — это логин пользователя. Если дано только имя («Костя», «Дима») — сначала вызови tracker_list_users, найди логин в поле display, затем передай его сюда.",
+        url: "/v3/issues/{issue_key}",
+        method: "PATCH",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}", "Content-Type": "application/json" },
+      },
+      {
+        name: "tracker_search_issues",
+        description: "Поиск задач в Яндекс Трекере. Передай одно из: queue (ключ очереди), keys (список ключей задач), query (язык запросов Трекера, например 'Queue: TEST AND Status: Open') или filter (объект фильтра). Поддерживает пагинацию через perPage и page.",
+        url: "/v3/issues/_search",
+        method: "POST",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}", "Content-Type": "application/json" },
+      },
+      // ── Priorities ───────────────────────────────────────────────────────
+      {
+        name: "tracker_get_priorities",
+        description: "Получить список доступных приоритетов в Яндекс Трекере организации. Вызывай ПЕРЕД созданием или обновлением задачи с приоритетом — возвращает реальные ключи (key) и названия (display). Используй поле key как значение priority в tracker_create_issue / tracker_update_issue.",
+        url: "/v3/priorities",
+        method: "GET",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}" },
+      },
+      // ── Comments ─────────────────────────────────────────────────────────
+      {
+        name: "tracker_get_comments",
+        description: "Получить список комментариев к задаче Яндекс Трекера. Передай issue_key (например TEST-123). Поддерживает пагинацию через perPage и id.",
+        url: "/v3/issues/{issue_key}/comments",
+        method: "GET",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}" },
+      },
+      {
+        name: "tracker_add_follower",
+        description: "Добавить пользователя в наблюдатели (followers) задачи Яндекс Трекера. Передай issue_key и login пользователя. Если дано только имя («Костя», «Дима») — сначала вызови tracker_list_users, найди логин по полю display, затем передай его сюда.",
+        url: "/v3/issues/{issue_key}",
+        method: "PATCH",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}", "Content-Type": "application/json" },
+        body_template: { followers: { add: [{ login: "{login}" }] } },
+      },
+      {
+        name: "tracker_add_comment",
+        description: "Добавить комментарий к задаче Яндекс Трекера. Передай issue_key (например TEST-123) и text (текст комментария). Опционально: summonees (массив логинов для упоминания).",
+        url: "/v3/issues/{issue_key}/comments",
+        method: "POST",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}", "Content-Type": "application/json" },
+      },
+      {
+        name: "tracker_update_comment",
+        description: "Обновить текст существующего комментария к задаче Яндекс Трекера. Передай issue_key, comment_id и text (новый текст).",
+        url: "/v3/issues/{issue_key}/comments/{comment_id}",
+        method: "PATCH",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}", "Content-Type": "application/json" },
+      },
+      {
+        name: "tracker_delete_comment",
+        description: "Удалить комментарий из задачи Яндекс Трекера. Передай issue_key и comment_id.",
+        url: "/v3/issues/{issue_key}/comments/{comment_id}",
+        method: "DELETE",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}" },
+      },
+      // ── Transitions / Status ─────────────────────────────────────────────
+      {
+        name: "tracker_get_transitions",
+        description: "Получить список доступных переходов статуса для задачи Яндекс Трекера. Передай issue_key. Возвращает id и display каждого перехода — используй перед tracker_execute_transition.",
+        url: "/v3/issues/{issue_key}/transitions",
+        method: "GET",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}" },
+      },
+      {
+        name: "tracker_execute_transition",
+        description: "Сменить статус задачи Яндекс Трекера. Передай issue_key и transition_id (получи через tracker_get_transitions). Опционально: comment (комментарий к переходу).",
+        url: "/v3/issues/{issue_key}/transitions/{transition_id}/_execute",
+        method: "POST",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}", "Content-Type": "application/json" },
+      },
+      // ── Links ────────────────────────────────────────────────────────────
+      {
+        name: "tracker_get_links",
+        description: "Получить список связей задачи Яндекс Трекера с другими задачами. Передай issue_key. Возвращает тип связи и ключи связанных задач.",
+        url: "/v3/issues/{issue_key}/links",
+        method: "GET",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}" },
+      },
+      {
+        name: "tracker_create_link",
+        description: "Создать связь между задачами Яндекс Трекера. Передай issue_key (источник), relationship (тип: relates, depends_on, is_dependent_by, duplicates, is_duplicated_by, is_subtask_for, is_parent_task_for) и object_key (ключ второй задачи, например IGIL-3).",
+        url: "/v3/issues/{issue_key}/links",
+        method: "POST",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}", "Content-Type": "application/json" },
+        body_template: { relationship: "{relationship}", object: { key: "{object_key}" } },
+      },
+      {
+        name: "tracker_delete_link",
+        description: "Удалить связь между задачами Яндекс Трекера. Передай issue_key и link_id (id связи из tracker_get_links).",
+        url: "/v3/issues/{issue_key}/links/{link_id}",
+        method: "DELETE",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}" },
+      },
+      // ── Checklists ───────────────────────────────────────────────────────
+      {
+        name: "tracker_get_checklist",
+        description: "Получить чеклист (список подзадач) задачи Яндекс Трекера. Передай issue_key.",
+        url: "/v3/issues/{issue_key}/checklistItems",
+        method: "GET",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}" },
+      },
+      {
+        name: "tracker_add_checklist_item",
+        description: "Добавить пункт в чеклист задачи Яндекс Трекера. Передай issue_key и text (текст пункта). Опционально: checked (boolean, выполнен ли пункт).",
+        url: "/v3/issues/{issue_key}/checklistItems",
+        method: "POST",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}", "Content-Type": "application/json" },
+      },
+      {
+        name: "tracker_update_checklist_item",
+        description: "Обновить пункт чеклиста задачи Яндекс Трекера. Передай issue_key, checklist_item_id и поля для обновления: text и/или checked (boolean).",
+        url: "/v3/issues/{issue_key}/checklistItems/{checklist_item_id}",
+        method: "PATCH",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}", "Content-Type": "application/json" },
+      },
+      {
+        name: "tracker_delete_checklist_item",
+        description: "Удалить пункт из чеклиста задачи Яндекс Трекера. Передай issue_key и checklist_item_id.",
+        url: "/v3/issues/{issue_key}/checklistItems/{checklist_item_id}",
+        method: "DELETE",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}" },
+      },
+      // ── Worklogs ─────────────────────────────────────────────────────────
+      {
+        name: "tracker_get_worklogs",
+        description: "Получить записи о затраченном времени (ворклоги) по задаче Яндекс Трекера. Передай issue_key.",
+        url: "/v3/issues/{issue_key}/worklog",
+        method: "GET",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}" },
+      },
+      {
+        name: "tracker_add_worklog",
+        description: "Добавить запись о затраченном времени к задаче Яндекс Трекера. Передай issue_key и duration (например '2h 30m' или 'PT2H30M'). Опционально: comment, start (дата начала ISO 8601).",
+        url: "/v3/issues/{issue_key}/worklog",
+        method: "POST",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}", "Content-Type": "application/json" },
+      },
+      {
+        name: "tracker_update_worklog",
+        description: "Обновить запись о затраченном времени в задаче Яндекс Трекера. Передай issue_key, worklog_id и поля: duration и/или comment.",
+        url: "/v3/issues/{issue_key}/worklog/{worklog_id}",
+        method: "PATCH",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}", "Content-Type": "application/json" },
+      },
+      {
+        name: "tracker_delete_worklog",
+        description: "Удалить запись о затраченном времени из задачи Яндекс Трекера. Передай issue_key и worklog_id.",
+        url: "/v3/issues/{issue_key}/worklog/{worklog_id}",
+        method: "DELETE",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}" },
+      },
+      // ── Attachments ──────────────────────────────────────────────────────
+      {
+        name: "tracker_list_attachments",
+        description: "Получить список вложений задачи Яндекс Трекера. Передай issue_key. Возвращает id, имя файла и ссылку для скачивания.",
+        url: "/v3/issues/{issue_key}/attachments",
+        method: "GET",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}" },
+      },
+      {
+        name: "tracker_delete_attachment",
+        description: "Удалить вложение из задачи Яндекс Трекера. Передай issue_key и attachment_id (из tracker_list_attachments).",
+        url: "/v3/issues/{issue_key}/attachments/{attachment_id}",
+        method: "DELETE",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}" },
+      },
+      // ── Queues ───────────────────────────────────────────────────────────
+      {
+        name: "tracker_list_queues",
+        description: "Получить список всех очередей Яндекс Трекера, доступных пользователю. Возвращает ключи и названия очередей.",
+        url: "/v3/queues/",
+        method: "GET",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}" },
+      },
+      {
+        name: "tracker_get_queue",
+        description: "Получить подробную информацию об очереди Яндекс Трекера: название, описание, тип задач по умолчанию, команда, рабочие процессы. Передай queue_id (числовой id или ключ, например TEST).",
+        url: "/v3/queues/{queue_id}",
+        method: "GET",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}" },
+      },
+      // ── Projects ─────────────────────────────────────────────────────────
+      {
+        name: "tracker_list_projects",
+        description: "Получить список проектов Яндекс Трекера. Опционально: передай filter для фильтрации по полям или orderBy для сортировки.",
+        url: "/v3/projects",
+        method: "GET",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}" },
+      },
+      {
+        name: "tracker_get_project",
+        description: "Получить информацию о проекте Яндекс Трекера по его id. Возвращает название, описание, статус, даты начала и конца.",
+        url: "/v3/projects/{project_id}",
+        method: "GET",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}" },
+      },
+      {
+        name: "tracker_create_project",
+        description: "Создать новый проект в Яндекс Трекере. Передай name (название). Опционально: description, startDate, endDate, status, lead (логин).",
+        url: "/v3/projects",
+        method: "POST",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}", "Content-Type": "application/json" },
+      },
+      {
+        name: "tracker_update_project",
+        description: "Обновить проект Яндекс Трекера. Передай project_id и поля для изменения: name, description, startDate, endDate, status, lead.",
+        url: "/v3/projects/{project_id}",
+        method: "PATCH",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}", "Content-Type": "application/json" },
+      },
+      // ── Users ────────────────────────────────────────────────────────────
+      {
+        name: "tracker_get_myself",
+        description: "Получить информацию о текущем авторизованном пользователе Яндекс Трекера: логин, имя, email, uid.",
+        url: "/v3/myself",
+        method: "GET",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}" },
+      },
+      {
+        name: "tracker_list_users",
+        description: "Получить список пользователей организации в Яндекс Трекере. ВСЕГДА вызывай этот инструмент первым, если тебе дали имя/прозвище пользователя (например 'Костя', 'Дима', 'Константин') — найди логин по полю display или email, затем используй логин в других инструментах. Не спрашивай логин у пользователя.",
+        url: "/v3/users",
+        method: "GET",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}" },
+      },
+      {
+        name: "tracker_get_user",
+        description: "Получить информацию о конкретном пользователе Яндекс Трекера. Передай uid (числовой id или логин).",
+        url: "/v3/users/{uid}",
+        method: "GET",
+        headers: { "Authorization": "OAuth {oauth_token}", "X-Cloud-Org-ID": "{org_id}", "X-Org-ID": "{org_id}" },
+      },
+    ],
+  },
+  {
     id: "google_sheets",
     name: "Google Sheets",
     description: "Чтение и запись ячеек в таблицах Google",
@@ -331,6 +611,8 @@ export default function ToolsPage() {
           description: t.description,
           url: t.url,
           method: t.method,
+          headers: t.headers,
+          body_template: t.body_template,
           connection_id: conn.id,
         });
       }

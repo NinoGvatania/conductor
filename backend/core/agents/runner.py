@@ -114,6 +114,8 @@ class AgentRunner:
             )
         full_system_prompt = "".join(system_parts)
 
+        MAX_TOOL_ROUNDS = 10
+
         while retries <= agent_contract.max_retries:
             start = time.monotonic()
             try:
@@ -121,31 +123,88 @@ class AgentRunner:
                     {"role": "user", "content": task + (f"\n\nFeedback from previous attempt: {feedback}" if feedback else "")}
                 ]
 
-                request = LLMRequest(
-                    model=model,
-                    system_prompt=full_system_prompt,
-                    messages=messages,
-                    temperature=agent_contract.temperature,
-                    max_tokens=agent_contract.max_tokens,
-                    tools=claude_tools,
-                )
-                if agent_contract.output_schema:
-                    request.output_schema = agent_contract.output_schema
+                total_input_tokens = 0
+                total_output_tokens = 0
+                all_executed_tools: list[dict[str, Any]] = []
+                last_response = None
+                output: Any = None
 
-                response = await asyncio.wait_for(
-                    run_provider.complete(request),
-                    timeout=agent_contract.timeout_seconds,
-                )
+                # Agentic tool-use loop: feed results back to LLM until it returns
+                # a final text response with no more tool calls.
+                for round_num in range(MAX_TOOL_ROUNDS):
+                    request = LLMRequest(
+                        model=model,
+                        system_prompt=full_system_prompt,
+                        messages=messages,
+                        temperature=agent_contract.temperature,
+                        max_tokens=agent_contract.max_tokens,
+                        tools=claude_tools if tool_configs else [],
+                    )
+                    if agent_contract.output_schema:
+                        request.output_schema = agent_contract.output_schema
 
-                latency_ms = (time.monotonic() - start) * 1000
-                output = response.structured_output or response.content
+                    last_response = await asyncio.wait_for(
+                        run_provider.complete(request),
+                        timeout=agent_contract.timeout_seconds,
+                    )
+
+                    total_input_tokens += last_response.input_tokens
+                    total_output_tokens += last_response.output_tokens
+
+                    if not last_response.tool_calls:
+                        # Final text-only response — exit loop
+                        output = last_response.structured_output or last_response.content
+                        break
+
+                    # Build assistant message with tool_use content blocks
+                    assistant_content: list[dict[str, Any]] = []
+                    if last_response.content:
+                        assistant_content.append({"type": "text", "text": last_response.content})
+                    for tc in last_response.tool_calls:
+                        assistant_content.append({
+                            "type": "tool_use",
+                            "id": tc["id"],
+                            "name": tc["name"],
+                            "input": tc.get("input", {}),
+                        })
+                    messages.append({"role": "assistant", "content": assistant_content})
+
+                    # Execute each tool call and collect tool_result blocks
+                    tool_results_content: list[dict[str, Any]] = []
+                    for tc in last_response.tool_calls:
+                        tool_name = tc.get("name", "")
+                        tool_args = tc.get("input", {})
+                        tool_id = tc.get("id", "")
+                        config = tool_configs.get(tool_name)
+                        if config and config.get("url"):
+                            logger.info("executing_tool", tool=tool_name, agent=agent_contract.name, args=tool_args, round=round_num)
+                            result = await execute_api_tool(config, tool_args)
+                            logger.info("tool_executed", tool=tool_name, success=result.get("success"), status=result.get("status_code"))
+                            all_executed_tools.append({"name": tool_name, "args": tool_args, "result": result})
+                            result_str = json.dumps(result, ensure_ascii=False, default=str)
+                        else:
+                            logger.warning("tool_not_found", tool=tool_name, agent=agent_contract.name)
+                            err = {"error": f"Tool '{tool_name}' not found in library or has no URL. Remove it from the agent and add a fresh one from the library."}
+                            all_executed_tools.append({"name": tool_name, "args": tool_args, "result": err})
+                            result_str = json.dumps(err)
+                        tool_results_content.append({
+                            "type": "tool_result",
+                            "tool_use_id": tool_id,
+                            "content": result_str,
+                        })
+
+                    # Feed tool results back to LLM for next round
+                    messages.append({"role": "user", "content": tool_results_content})
+                    logger.info("tool_round_complete", agent=agent_contract.name, round=round_num, tools_called=len(last_response.tool_calls))
+                else:
+                    logger.warning("agent_max_tool_rounds_reached", agent=agent_contract.name, rounds=MAX_TOOL_ROUNDS)
+                    output = last_response.structured_output or last_response.content if last_response else None
 
                 # Handle empty responses gracefully
                 if not output or (isinstance(output, str) and not output.strip()):
                     output = {"result": "no_output", "reason": "empty_response"}
 
                 if agent_contract.output_schema and isinstance(output, str):
-                    # Try to extract JSON from text response
                     text = output.strip()
                     json_start = text.find("{")
                     json_end = text.rfind("}")
@@ -163,11 +222,8 @@ class AgentRunner:
                     try:
                         jsonschema.validate(output, agent_contract.output_schema)
                     except jsonschema.ValidationError as e:
-                        # Log but don't fail — continue with whatever output we have
                         logger.warning("agent_schema_mismatch", agent=agent_contract.name, error=e.message)
 
-                # Hard constraint post-validation — checks output against agent's declared constraints.
-                # Raises CorrectableError on violation, which triggers retry with feedback.
                 if getattr(agent_contract, "constraints", ""):
                     await self._validate_constraints(
                         agent_name=agent_contract.name,
@@ -175,31 +231,18 @@ class AgentRunner:
                         output=output,
                     )
 
-                # Execute any tool calls the LLM requested
-                executed_tools: list[dict[str, Any]] = []
-                if response.tool_calls and tool_configs:
-                    for tc in response.tool_calls:
-                        tool_name = tc.get("name", "")
-                        tool_args = tc.get("input", {})
-                        config = tool_configs.get(tool_name)
-                        if config and config.get("url"):
-                            logger.info("executing_tool", tool=tool_name, agent=agent_contract.name)
-                            result = await execute_api_tool(config, tool_args)
-                            executed_tools.append({"name": tool_name, "args": tool_args, "result": result})
-                        else:
-                            executed_tools.append({"name": tool_name, "args": tool_args, "result": {"error": f"Tool '{tool_name}' not found in library or has no URL. Remove it from the agent and add a fresh one from the library."}})
-
+                latency_ms = (time.monotonic() - start) * 1000
                 cost = self.model_router.estimate_cost(
                     agent_contract.model_tier,
-                    response.input_tokens,
-                    response.output_tokens,
+                    total_input_tokens,
+                    total_output_tokens,
                 )
 
                 final_output = output
-                if executed_tools:
+                if all_executed_tools:
                     final_output = {
                         "agent_response": output,
-                        "tool_results": executed_tools,
+                        "tool_results": all_executed_tools,
                     }
 
                 return StepResult(
@@ -207,14 +250,14 @@ class AgentRunner:
                     status=StepStatus.completed,
                     agent_name=agent_contract.name,
                     provider=run_provider_name,
-                    model=response.model or model,
+                    model=last_response.model or model if last_response else model,
                     output=final_output,
-                    tokens_used=response.input_tokens + response.output_tokens,
-                    input_tokens=response.input_tokens,
-                    output_tokens=response.output_tokens,
+                    tokens_used=total_input_tokens + total_output_tokens,
+                    input_tokens=total_input_tokens,
+                    output_tokens=total_output_tokens,
                     cost_usd=cost,
                     latency_ms=latency_ms,
-                    tool_calls=response.tool_calls,
+                    tool_calls=all_executed_tools,
                     retries=retries,
                 )
 
