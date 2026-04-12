@@ -68,6 +68,7 @@ export const api = {
     contextId?: string,
     conversationId?: string,
     model?: string,
+    projectId?: string,
   ) =>
     request("/api/builders/send", {
       method: "POST",
@@ -77,6 +78,7 @@ export const api = {
         context_id: contextId,
         conversation_id: conversationId,
         model: model || null,
+        project_id: projectId || null,
       }),
     }),
 

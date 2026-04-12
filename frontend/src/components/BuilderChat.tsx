@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
+import { useProject } from "@/contexts/ProjectContext";
 
 interface Message {
   id: string;
@@ -38,6 +39,7 @@ export default function BuilderChat({
   placeholder,
   onEntityCreated,
 }: BuilderChatProps) {
+  const { projectId } = useProject();
   const [convId, setConvId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -147,6 +149,7 @@ export default function BuilderChat({
         contextId,
         convId || undefined,
         model || undefined,
+        projectId || undefined,
       )) as {
         conversation_id: string;
         message: Message;
