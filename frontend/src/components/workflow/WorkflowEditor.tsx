@@ -25,18 +25,9 @@ const TRIGGER_TEMPLATES = [
   { nodeType: "trigger", label: "Manual Input", agentName: null, triggerType: "manual" },
 ];
 
-const BUILTIN_TEMPLATES = [
-  { nodeType: "deterministic", label: "Intake", agentName: null },
-  { nodeType: "agent", label: "Classify", agentName: "classifier" },
-  { nodeType: "agent", label: "Extract", agentName: "extractor" },
-  { nodeType: "agent", label: "Validate", agentName: "validator" },
-  { nodeType: "agent", label: "Risk Score", agentName: "risk_scorer" },
-  { nodeType: "agent", label: "Decide", agentName: "decision_maker" },
-  { nodeType: "agent", label: "Draft", agentName: "draft_writer" },
-  { nodeType: "router", label: "Router", agentName: null },
-  { nodeType: "human", label: "Human Review", agentName: null },
-  { nodeType: "parallel", label: "Parallel", agentName: null },
-];
+// Built-in templates removed — they confused users because they couldn't
+// be configured and their purpose was unclear. The Library now shows only
+// Triggers (entry points) and the user's custom agents.
 
 interface WorkflowEditorProps {
   initialNodes?: Node[];
@@ -409,9 +400,6 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
                 const filteredTriggers = TRIGGER_TEMPLATES.filter((t) =>
                   matches(t.label, t.triggerType),
                 );
-                const filteredBuiltin = BUILTIN_TEMPLATES.filter((t) =>
-                  matches(t.label, t.agentName || t.nodeType),
-                );
                 const filteredCustom = customAgents.filter((a) => matches(a.name, a.description));
 
                 const triggerIcons: Record<string, string> = { telegram: "✈️", webhook: "🔗", manual: "▶️" };
@@ -451,36 +439,6 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
                         </div>
                       </div>
                     )}
-                    {filteredBuiltin.length > 0 && (
-                      <div>
-                        <p className="text-[10px] font-medium uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>
-                          Built-in
-                        </p>
-                        <div className="grid grid-cols-2 gap-2">
-                          {filteredBuiltin.map((t) => (
-                            <button
-                              key={t.label}
-                              onClick={() => {
-                                addNode(t);
-                                setLibraryOpen(false);
-                                setLibrarySearch("");
-                              }}
-                              className="text-left px-3 py-2 rounded-md text-xs"
-                              style={{
-                                color: "var(--text-secondary)",
-                                background: "var(--bg-secondary)",
-                                border: "1px solid var(--border)",
-                              }}
-                            >
-                              <div className="font-medium" style={{ color: "var(--text-primary)" }}>{t.label}</div>
-                              <div className="text-[10px] mt-0.5" style={{ color: "var(--text-muted)" }}>
-                                {t.nodeType}
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
                     {filteredCustom.length > 0 && (
                       <div>
                         <p className="text-[10px] font-medium uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>
@@ -513,7 +471,7 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
                         </div>
                       </div>
                     )}
-                    {filteredTriggers.length === 0 && filteredBuiltin.length === 0 && filteredCustom.length === 0 && (
+                    {filteredTriggers.length === 0 && filteredCustom.length === 0 && (
                       <p className="text-xs text-center py-8" style={{ color: "var(--text-muted)" }}>
                         No agents match your search
                       </p>

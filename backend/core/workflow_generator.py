@@ -5,7 +5,7 @@ import structlog
 
 from backend.core.contracts.workflow import NodeType, WorkflowDefinition
 from backend.core.providers.anthropic import AnthropicProvider
-from backend.core.providers.base import LLMRequest
+from backend.core.providers.base import LLMProvider, LLMRequest
 from backend.core.providers.model_router import ModelRouter
 
 logger = structlog.get_logger()
@@ -78,8 +78,9 @@ def _format_agent_list(available_agents: list[dict[str, str]] | None) -> str:
 
 
 class WorkflowGenerator:
-    def __init__(self) -> None:
-        self.provider = AnthropicProvider()
+    def __init__(self, provider: "LLMProvider | None" = None, model: str | None = None) -> None:
+        self.provider = provider or AnthropicProvider()
+        self.model = model
         self.model_router = ModelRouter()
 
     async def generate(
@@ -87,7 +88,7 @@ class WorkflowGenerator:
         user_description: str,
         available_agents: list[dict[str, str]] | None = None,
     ) -> WorkflowDefinition:
-        model = self.model_router.resolve("balanced")
+        model = self.model or self.model_router.resolve("balanced")
 
         system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
             agent_list=_format_agent_list(available_agents)
