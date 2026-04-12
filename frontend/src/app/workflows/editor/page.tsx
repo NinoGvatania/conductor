@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { api } from "@/lib/api";
+import { useProject } from "@/contexts/ProjectContext";
 import type { Node, Edge } from "@xyflow/react";
 import BuilderChat from "@/components/BuilderChat";
 
@@ -89,6 +90,7 @@ export default function WorkflowEditorPage() {
 function EditorContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { projectId } = useProject();
   const workflowId = searchParams.get("id");
 
   const [saving, setSaving] = useState(false);
@@ -170,7 +172,7 @@ function EditorContent() {
       if (workflowId) {
         await api.updateWorkflow(workflowId, workflow);
       } else {
-        await api.createWorkflow(workflow);
+        await api.createWorkflow(workflow, projectId || undefined);
       }
       router.push("/workflows");
     } catch (e) {

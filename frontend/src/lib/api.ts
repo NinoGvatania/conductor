@@ -81,7 +81,8 @@ export const api = {
     }),
 
   // Agents
-  listAgents: () => request("/api/agents"),
+  listAgents: (projectId?: string) =>
+    request(`/api/agents${projectId ? `?project_id=${projectId}` : ""}`),
   getAgent: (id: string) => request(`/api/agents/${id}`),
   createAgent: (agent: Record<string, unknown>) =>
     request("/api/agents", { method: "POST", body: JSON.stringify(agent) }),
@@ -116,11 +117,12 @@ export const api = {
   getConnectionTools: (id: string) => request(`/api/connections/${id}/tools`),
 
   // Workflows
-  listWorkflows: () => request("/api/workflows"),
+  listWorkflows: (projectId?: string) =>
+    request(`/api/workflows${projectId ? `?project_id=${projectId}` : ""}`),
   getWorkflowLibrary: () => request("/api/workflows/library"),
   getWorkflow: (id: string) => request(`/api/workflows/${id}`),
-  createWorkflow: (workflow: Record<string, unknown>) =>
-    request("/api/workflows", { method: "POST", body: JSON.stringify(workflow) }),
+  createWorkflow: (workflow: Record<string, unknown>, projectId?: string) =>
+    request(`/api/workflows${projectId ? `?project_id=${projectId}` : ""}`, { method: "POST", body: JSON.stringify(workflow) }),
   updateWorkflow: (id: string, workflow: Record<string, unknown>) =>
     request(`/api/workflows/${id}`, { method: "PUT", body: JSON.stringify(workflow) }),
   deleteWorkflow: (id: string) =>
@@ -129,7 +131,13 @@ export const api = {
     request(`/api/workflows/${workflowId}/run`, { method: "POST" }),
 
   // Runs
-  listRuns: (status?: string) => request(`/api/runs${status ? `?status=${status}` : ""}`),
+  listRuns: (status?: string, projectId?: string) => {
+    const params = new URLSearchParams();
+    if (status) params.set("status", status);
+    if (projectId) params.set("project_id", projectId);
+    const qs = params.toString();
+    return request(`/api/runs${qs ? `?${qs}` : ""}`);
+  },
   getRun: (runId: string) => request(`/api/runs/${runId}`),
   getTokenStats: () => request("/api/runs/stats"),
 

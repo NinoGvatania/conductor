@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useLayoutEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
+import { useProject } from "@/contexts/ProjectContext";
 
 interface Message { id: string; role: string; content: string; created_at: string; }
 
@@ -11,6 +12,7 @@ export default function ChatPage() {
 }
 
 function ChatContent() {
+  const { projectId } = useProject();
   const searchParams = useSearchParams();
   const convId = searchParams.get("id");
   const [activeConv, setActiveConv] = useState<string | null>(convId);
@@ -78,7 +80,7 @@ function ChatContent() {
     setMessages((prev) => [...prev, { id: "temp", role: "user", content: text, created_at: new Date().toISOString() }]);
 
     try {
-      const result = (await api.sendMessage(text, activeConv || undefined, undefined, model)) as {
+      const result = (await api.sendMessage(text, activeConv || undefined, projectId || undefined, model)) as {
         conversation_id: string;
         message: Message;
       };

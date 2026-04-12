@@ -3,19 +3,21 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { useProject } from "@/contexts/ProjectContext";
 import BuilderChat from "@/components/BuilderChat";
 
 interface Workflow { id: string; name: string; version: string; created_at: string; }
 interface Template { id: string; name: string; description: string; tags: string[]; definition: Record<string, unknown>; }
 
 export default function WorkflowsPage() {
+  const { projectId } = useProject();
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [tab, setTab] = useState<"my" | "library">("my");
 
   async function refreshWorkflows() {
     try {
-      const w = await api.listWorkflows();
+      const w = await api.listWorkflows(projectId || undefined);
       setWorkflows(w as Workflow[]);
     } catch (e) {
       console.error(e);
@@ -25,7 +27,8 @@ export default function WorkflowsPage() {
   useEffect(() => {
     refreshWorkflows();
     api.getWorkflowLibrary().then((t) => setTemplates(t as Template[])).catch((e) => console.error(e));
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
 
   async function handleDelete(id: string) {
     if (!confirm("Delete this workflow?")) return;

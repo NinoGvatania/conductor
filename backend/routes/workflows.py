@@ -31,17 +31,25 @@ async def get_workflow_library():
 
 
 @router.get("")
-async def list_workflows(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Workflow).order_by(Workflow.created_at.desc()))
+async def list_workflows(project_id: str | None = None, db: AsyncSession = Depends(get_db)):
+    query = select(Workflow).order_by(Workflow.created_at.desc())
+    if project_id:
+        query = query.where(Workflow.project_id == uuid.UUID(project_id))
+    result = await db.execute(query)
     return [_serialize(w) for w in result.scalars().all()]
 
 
 @router.post("")
-async def create_workflow(workflow: WorkflowDefinition, db: AsyncSession = Depends(get_db)):
+async def create_workflow(
+    workflow: WorkflowDefinition,
+    project_id: str | None = None,
+    db: AsyncSession = Depends(get_db),
+):
     w = Workflow(
         name=workflow.name,
         version=workflow.version,
         definition_json=workflow.model_dump_json(),
+        project_id=uuid.UUID(project_id) if project_id else None,
     )
     db.add(w)
     await db.commit()

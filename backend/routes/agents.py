@@ -106,7 +106,7 @@ async def list_providers():
 
 
 @router.get("")
-async def list_agents(include_builtin: bool = True, db: AsyncSession = Depends(get_db)):
+async def list_agents(include_builtin: bool = True, project_id: str | None = None, db: AsyncSession = Depends(get_db)):
     agents = []
     if include_builtin:
         for a in BUILTIN_AGENTS.values():
@@ -121,7 +121,10 @@ async def list_agents(include_builtin: bool = True, db: AsyncSession = Depends(g
                 "tags": ["builtin"],
             })
     try:
-        result = await db.execute(select(AgentConfig).order_by(AgentConfig.created_at.desc()))
+        query = select(AgentConfig).order_by(AgentConfig.created_at.desc())
+        if project_id:
+            query = query.where(AgentConfig.project_id == uuid.UUID(project_id))
+        result = await db.execute(query)
         for a in result.scalars().all():
             agents.append(_serialize(a))
     except Exception as e:

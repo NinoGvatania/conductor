@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
+import { useProject } from "@/contexts/ProjectContext";
 
 interface KBFile {
   filename: string;
@@ -19,6 +20,7 @@ interface KnowledgeBase {
 }
 
 export default function KnowledgePage() {
+  const { projectId } = useProject();
   const [kbs, setKbs] = useState<KnowledgeBase[]>([]);
   const [selected, setSelected] = useState<KnowledgeBase | null>(null);
   const [loading, setLoading] = useState(true);
@@ -30,7 +32,7 @@ export default function KnowledgePage() {
   async function refresh() {
     setLoading(true);
     try {
-      const list = (await api.listKnowledgeBases()) as KnowledgeBase[];
+      const list = (await api.listKnowledgeBases(projectId || undefined)) as KnowledgeBase[];
       setKbs(list || []);
       // Keep the currently-selected KB in sync after uploads
       if (selected) {
@@ -45,7 +47,7 @@ export default function KnowledgePage() {
   useEffect(() => {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [projectId]);
 
   async function handleCreate() {
     if (!newName.trim()) return;

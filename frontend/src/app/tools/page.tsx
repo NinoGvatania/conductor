@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { useProject } from "@/contexts/ProjectContext";
 
 interface Tool {
   id: string;
@@ -514,6 +515,7 @@ const LIBRARY_PRESETS: LibraryPreset[] = [
 
 export default function ToolsPage() {
   const router = useRouter();
+  const { projectId } = useProject();
   const [tools, setTools] = useState<Tool[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [tab, setTab] = useState<"installed" | "library">("installed");
@@ -526,7 +528,7 @@ export default function ToolsPage() {
 
   async function refresh() {
     try {
-      const [t, c] = await Promise.all([api.listTools(), api.listConnections()]);
+      const [t, c] = await Promise.all([api.listTools(projectId || undefined), api.listConnections(projectId || undefined)]);
       setTools((t as Tool[]) || []);
       setConnections((c as Connection[]) || []);
     } catch (e) {
@@ -536,7 +538,8 @@ export default function ToolsPage() {
 
   useEffect(() => {
     refresh();
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
 
   // Map each connection to its tools for quick count lookup
   const toolsByConnection = useMemo(() => {
