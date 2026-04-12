@@ -19,7 +19,14 @@ function ChatContent() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
-  const [model, setModel] = useState("claude-sonnet-4-6");
+  const [model, setModelRaw] = useState(() => {
+    if (typeof window !== "undefined") return localStorage.getItem("lastSelectedModel") || "claude-sonnet-4-6";
+    return "claude-sonnet-4-6";
+  });
+  function setModel(id: string) {
+    setModelRaw(id);
+    if (typeof window !== "undefined" && id) localStorage.setItem("lastSelectedModel", id);
+  }
   const [availableModels, setAvailableModels] = useState<Array<{ id: string; name: string; provider: string }>>([]);
   const messagesEnd = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);

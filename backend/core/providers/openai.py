@@ -1,3 +1,10 @@
+"""OpenAI provider with full tool-use support.
+
+Handles the format differences between Anthropic and OpenAI APIs:
+- Tool schemas: Anthropic uses `input_schema`, OpenAI uses `parameters` inside `function`
+- Messages: Anthropic uses content blocks [{type: "tool_use"}], OpenAI uses `.tool_calls` on assistant + role="tool" messages
+- Tool results: Anthropic uses `tool_result` content blocks, OpenAI uses separate messages with role="tool"
+"""
 import json
 import time
 from typing import Any
@@ -15,6 +22,110 @@ MODEL_MAP: dict[str, str] = {
     "balanced": "gpt-4o",
     "powerful": "o3",
 }
+
+
+def _convert_tools_to_openai(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Convert Anthropic-style tool schemas to OpenAI function-calling format.
+
+    Anthropic: {name, description, input_schema: {type: "object", properties: ...}}
+    OpenAI:    {type: "function", function: {name, description, parameters: {type: "object", properties: ...}}}
+    """
+    result = []
+    for tool in tools:
+        result.append({
+            "type": "function",
+            "function": {
+                "name": tool["name"],
+                "description": tool.get("description", ""),
+                "parameters": tool.get("input_schema", tool.get("parameters", {"type": "object", "properties": {}})),
+            },
+        })
+    return result
+
+
+def _convert_messages_for_openai(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Convert Anthropic-style messages (with tool_use/tool_result content blocks)
+    to OpenAI format (assistant.tool_calls + role=tool messages).
+
+    Anthropic assistant message:
+      {role: "assistant", content: [{type: "text", text: "..."}, {type: "tool_use", id, name, input}]}
+
+    OpenAI assistant message:
+      {role: "assistant", content: "...", tool_calls: [{id, type: "function", function: {name, arguments: JSON}}]}
+
+    Anthropic tool result:
+      {role: "user", content: [{type: "tool_result", tool_use_id, content: "..."}]}
+
+    OpenAI tool result:
+      {role: "tool", tool_call_id: "...", content: "..."}
+    """
+    result: list[dict[str, Any]] = []
+
+    for msg in messages:
+        content = msg.get("content")
+
+        # Simple string content — pass through
+        if isinstance(content, str):
+            result.append(msg)
+            continue
+
+        # Content is a list of blocks — need conversion
+        if isinstance(content, list):
+            role = msg.get("role", "user")
+
+            if role == "assistant":
+                # Extract text + tool_use blocks
+                text_parts: list[str] = []
+                tool_calls: list[dict[str, Any]] = []
+                for block in content:
+                    if isinstance(block, dict):
+                        if block.get("type") == "text":
+                            text_parts.append(block.get("text", ""))
+                        elif block.get("type") == "tool_use":
+                            tool_calls.append({
+                                "id": block.get("id", ""),
+                                "type": "function",
+                                "function": {
+                                    "name": block.get("name", ""),
+                                    "arguments": json.dumps(block.get("input", {})),
+                                },
+                            })
+
+                assistant_msg: dict[str, Any] = {
+                    "role": "assistant",
+                    "content": "\n".join(text_parts) if text_parts else None,
+                }
+                if tool_calls:
+                    assistant_msg["tool_calls"] = tool_calls
+                result.append(assistant_msg)
+
+            elif role == "user":
+                # Check if this is a tool_result message
+                has_tool_results = any(
+                    isinstance(b, dict) and b.get("type") == "tool_result"
+                    for b in content
+                )
+                if has_tool_results:
+                    for block in content:
+                        if isinstance(block, dict) and block.get("type") == "tool_result":
+                            result.append({
+                                "role": "tool",
+                                "tool_call_id": block.get("tool_use_id", ""),
+                                "content": block.get("content", ""),
+                            })
+                else:
+                    # Regular user message with content blocks — concatenate text
+                    texts = [
+                        b.get("text", "") if isinstance(b, dict) else str(b)
+                        for b in content
+                    ]
+                    result.append({"role": "user", "content": "\n".join(texts)})
+            else:
+                result.append(msg)
+        else:
+            result.append(msg)
+
+    return result
 
 
 class OpenAIProvider(LLMProvider):
@@ -40,14 +151,14 @@ class OpenAIProvider(LLMProvider):
         import openai
 
         start = time.monotonic()
+
+        # Convert messages from Anthropic format to OpenAI format
         messages: list[dict[str, Any]] = []
         if request.system_prompt:
             messages.append({"role": "system", "content": request.system_prompt})
-        messages.extend(request.messages)
+        messages.extend(_convert_messages_for_openai(request.messages))
 
-        # OpenAI chat models cap output at ~16k tokens (gpt-4o: 16384). If
-        # the caller passed None ("use model max"), default to 16384. If a
-        # specific value was requested, clip it to the ceiling.
+        # OpenAI chat models cap output at ~16k tokens (gpt-4o: 16384).
         effective_max_tokens = min(request.max_tokens or 16384, 16384)
 
         kwargs: dict[str, Any] = {
@@ -57,7 +168,21 @@ class OpenAIProvider(LLMProvider):
             "temperature": request.temperature,
         }
 
-        if request.output_schema:
+        # Convert and pass tools if provided
+        if request.tools:
+            kwargs["tools"] = _convert_tools_to_openai(request.tools)
+            if request.tool_choice:
+                if request.tool_choice == "any":
+                    kwargs["tool_choice"] = "required"
+                elif request.tool_choice == "auto":
+                    kwargs["tool_choice"] = "auto"
+                else:
+                    kwargs["tool_choice"] = {
+                        "type": "function",
+                        "function": {"name": request.tool_choice},
+                    }
+
+        if request.output_schema and not request.tools:
             kwargs["response_format"] = {"type": "json_object"}
 
         try:
@@ -75,10 +200,14 @@ class OpenAIProvider(LLMProvider):
 
         if choice.message.tool_calls:
             for tc in choice.message.tool_calls:
+                try:
+                    args = json.loads(tc.function.arguments)
+                except json.JSONDecodeError:
+                    args = {}
                 tool_calls.append({
                     "id": tc.id,
                     "name": tc.function.name,
-                    "input": json.loads(tc.function.arguments),
+                    "input": args,
                 })
 
         structured_output = None
