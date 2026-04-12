@@ -27,4 +27,9 @@ DRAFT_WRITER_AGENT = {
     "timeout_seconds": 60,
     "max_retries": 2,
     "max_tokens": 32000,
+    "capabilities": {
+        "task_keywords": ["write", "draft", "compose", "generate text", "letter", "email",
+                          "communication", "response", "notification", "message"],
+        "not_suitable_for": ["extract", "classify", "validate", "score risk", "decide"],
+    },
 }

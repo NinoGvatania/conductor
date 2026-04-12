@@ -31,4 +31,9 @@ DECISION_MAKER_AGENT = {
     "timeout_seconds": 120,
     "max_retries": 2,
     "max_tokens": 32000,
+    "capabilities": {
+        "task_keywords": ["decide", "decision", "approve", "reject", "escalate", "final decision",
+                          "synthesize", "determine outcome", "review evidence"],
+        "not_suitable_for": ["extract", "classify", "validate", "score risk", "write", "draft"],
+    },
 }

@@ -3,7 +3,7 @@ import uuid
 
 import structlog
 
-from backend.core.contracts.workflow import WorkflowDefinition
+from backend.core.contracts.workflow import NodeType, WorkflowDefinition
 from backend.core.providers.anthropic import AnthropicProvider
 from backend.core.providers.base import LLMRequest
 from backend.core.providers.model_router import ModelRouter
@@ -26,16 +26,21 @@ generate a valid JSON workflow. Keep it CONCISE — use 5-8 nodes max.
 Output ONLY valid JSON (no markdown, no explanation). Schema:
 {{
   "name": "string",
+  "description": "string — one sentence describing the entire workflow's purpose",
   "entry_node": "first_node_id",
   "nodes": [
     {{
       "id": "string",
       "type": "deterministic|agent|router|human",
       "agent_name": "<one of the available agents listed below, or null>",
+      "description": "string — one sentence: what this node does and why it exists in this workflow",
       "next_nodes": ["next_node_id"],
       "config": {{}}
     }}
-  ]
+  ],
+  "edge_descriptions": {{
+    "source_node_id->target_node_id": "string — why data flows this direction / what condition triggers this route"
+  }}
 }}
 
 ## Available agents (use these exact names in `agent_name`)
@@ -46,6 +51,9 @@ Rules:
 - 5-8 nodes maximum
 - Keep node IDs short (e.g. "intake", "classify", "extract")
 - `agent_name` must be one of the names listed above, or null for non-agent nodes
+- Every node MUST have a non-empty `description` field
+- Every edge (A→B connection) MUST appear in `edge_descriptions` with a meaningful explanation
+- For router nodes, edge descriptions must explain what condition causes routing to each destination
 - Prefer the user's custom agents over builtins when their purpose matches the user's description — the user built them for a reason
 - The last node must have "next_nodes": []
 - For deterministic nodes: agent_name is null
@@ -130,7 +138,29 @@ class WorkflowGenerator:
             node.setdefault("parallel_nodes", [])
             node.setdefault("timeout_seconds", 120)
             node.setdefault("config", {})
+            node.setdefault("description", f"Process step '{node.get('id', 'unknown')}'")
+
+        workflow_data.setdefault("edge_descriptions", {})
 
         workflow = WorkflowDefinition.model_validate(workflow_data)
+
+        # Validate that all agent_name references exist in known agents
+        known_agent_names: set[str] = {a["name"] for a in BUILTIN_AGENTS_HINT}
+        if available_agents:
+            known_agent_names.update(a["name"] for a in available_agents)
+
+        invalid_agents = [
+            (n.id, n.agent_name)
+            for n in workflow.nodes
+            if n.type == NodeType.agent and n.agent_name and n.agent_name not in known_agent_names
+        ]
+        if invalid_agents:
+            msg_lines = ["Workflow generator produced unknown agent_name(s):"]
+            for node_id, agent_name in invalid_agents:
+                msg_lines.append(f"  - node '{node_id}' references '{agent_name}' (not in available agents)")
+            msg_lines.append(f"Available agents: {sorted(known_agent_names)}")
+            logger.error("workflow_invalid_agent_names", invalid=invalid_agents)
+            raise ValueError("\n".join(msg_lines))
+
         logger.info("workflow_generated", name=workflow.name, nodes=len(workflow.nodes))
         return workflow

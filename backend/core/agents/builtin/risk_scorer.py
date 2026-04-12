@@ -8,7 +8,10 @@ RISK_SCORER_AGENT = {
         "Consider all relevant factors including financial exposure, compliance requirements, "
         "historical patterns, and red flags. Return a JSON object with 'risk_score' (0-100), "
         "'risk_level' (low/medium/high/critical), 'factors' (list of risk factors with weights), "
-        "and 'recommendation' (string)."
+        "and 'recommendation' (string).\n\n"
+        "Important: Each risk factor you identify MUST be traceable to a specific data point "
+        "in the input. Do not invent risk factors not supported by the provided data. "
+        "If data is insufficient for a full assessment, reflect that in the recommendation."
     ),
     "output_schema": {
         "type": "object",
@@ -38,4 +41,10 @@ RISK_SCORER_AGENT = {
     "timeout_seconds": 90,
     "max_retries": 2,
     "max_tokens": 32000,
+    "grounding_check": True,
+    "capabilities": {
+        "task_keywords": ["risk", "score", "assess", "evaluate risk", "risk level", "danger",
+                          "threat", "exposure", "compliance risk"],
+        "not_suitable_for": ["extract", "classify", "validate", "write", "draft"],
+    },
 }

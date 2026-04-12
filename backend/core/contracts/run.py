@@ -50,6 +50,7 @@ class RunState(BaseModel):
     total_steps: int = 0
     intermediate_results: dict[str, Any] = Field(default_factory=dict)
     pending_approval: dict[str, Any] | None = None
+    verification_metadata: dict[str, Any] = Field(default_factory=dict)
 
     def record_step(self, step: StepResult) -> None:
         existing = next((i for i, s in enumerate(self.steps) if s.node_id == step.node_id), None)

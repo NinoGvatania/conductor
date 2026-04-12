@@ -43,6 +43,34 @@ def _infer_provider_from_model(model_id: str) -> str:
     return "anthropic"
 
 
+GROUNDING_JUDGE_SYSTEM_PROMPT = (
+    "You are a hallucination detector for AI agent outputs. "
+    "Given INPUT (what the agent was given) and OUTPUT (what the agent produced), "
+    "check for hallucinations: specific factual claims in the output that are NOT present "
+    "or derivable from the input.\n\n"
+    "Rules:\n"
+    "- Focus ONLY on concrete facts: numbers, names, dates, identifiers, monetary amounts.\n"
+    "- Do NOT flag reasoning, structure choices, summaries, or inferences.\n"
+    "- Be strict but reasonable — only flag clear fabrications.\n\n"
+    "Respond with ONLY valid JSON, no markdown:\n"
+    '{"hallucinated": true|false, "issues": ["fabricated fact 1", ...]}\n'
+    'If nothing is hallucinated: {"hallucinated": false, "issues": []}'
+)
+
+_UNCERTAINTY_PHRASES = (
+    "i'm not sure", "i am not sure", "i don't know", "i cannot determine",
+    "i cannot be certain", "unclear", "unable to determine", "not enough information",
+    "insufficient data", "cannot be determined", "not specified", "i cannot",
+    "i'm unable", "i am unable",
+)
+
+
+def _detect_uncertainty(text: str) -> bool:
+    """Return True if the raw LLM response expresses uncertainty."""
+    lower = text.lower()
+    return any(phrase in lower for phrase in _UNCERTAINTY_PHRASES)
+
+
 CONSTRAINT_JUDGE_SYSTEM_PROMPT = (
     "You are a strict compliance checker for AI agent outputs. "
     "Given a set of CONSTRAINTS (hard rules the agent must follow) and an OUTPUT "
@@ -69,6 +97,7 @@ class AgentRunner:
         task: str,
         context: dict[str, Any] | None = None,
         tools: list[dict[str, Any]] | None = None,
+        extra_feedback: str = "",
     ) -> StepResult:
         context = context or {}
         tools = tools or []
@@ -112,6 +141,17 @@ class AgentRunner:
                 f"\n\n## When to ask for clarification:\n{agent_contract.clarification_rules}\n\n"
                 "If any of these conditions apply, respond with a clarification question instead of guessing."
             )
+        if context:
+            system_parts.append(
+                "\n\n## GROUNDING REQUIREMENT (critical):\n"
+                "Every factual claim, number, name, date, or identifier in your output MUST be "
+                "traceable to the input data or previous step results provided to you.\n"
+                "- DO NOT invent, assume, or extrapolate values not present in the data.\n"
+                "- If a required field is absent from the input, set it to null and note it in "
+                "  missing_fields or warnings — do not fabricate a plausible-sounding value.\n"
+                "- If you are uncertain whether a value is correct, express uncertainty explicitly "
+                "  rather than guessing confidently."
+            )
         full_system_prompt = "".join(system_parts)
 
         MAX_TOOL_ROUNDS = 10
@@ -119,8 +159,13 @@ class AgentRunner:
         while retries <= agent_contract.max_retries:
             start = time.monotonic()
             try:
+                user_content = task
+                if extra_feedback:
+                    user_content += f"\n\nVerification feedback (must be addressed): {extra_feedback}"
+                if feedback:
+                    user_content += f"\n\nFeedback from previous attempt: {feedback}"
                 messages: list[dict[str, Any]] = [
-                    {"role": "user", "content": task + (f"\n\nFeedback from previous attempt: {feedback}" if feedback else "")}
+                    {"role": "user", "content": user_content}
                 ]
 
                 total_input_tokens = 0
@@ -222,13 +267,43 @@ class AgentRunner:
                     try:
                         jsonschema.validate(output, agent_contract.output_schema)
                     except jsonschema.ValidationError as e:
-                        logger.warning("agent_schema_mismatch", agent=agent_contract.name, error=e.message)
+                        raise CorrectableError(
+                            f"Output does not match required schema: {e.message}",
+                            feedback=(
+                                f"Your response failed schema validation: {e.message}\n"
+                                f"You MUST return valid JSON matching this schema:\n"
+                                f"{json.dumps(agent_contract.output_schema, indent=2)}\n"
+                                "Return ONLY the JSON object, no markdown, no explanation."
+                            ),
+                        ) from e
+
+                # Uncertainty detection: if raw LLM text expresses uncertainty, escalate
+                raw_text = last_response.content if last_response else ""
+                if raw_text and _detect_uncertainty(raw_text):
+                    if getattr(agent_contract, "escalation_policy", "") == "pause_and_notify":
+                        raise EscalatableError(
+                            "Agent expressed uncertainty in its response",
+                            context={
+                                "agent": agent_contract.name,
+                                "raw_excerpt": raw_text[:500],
+                                "reason": "uncertainty_detected",
+                            },
+                        )
 
                 if getattr(agent_contract, "constraints", ""):
                     await self._validate_constraints(
                         agent_name=agent_contract.name,
                         constraints=agent_contract.constraints,
                         output=output,
+                        provider=run_provider,
+                    )
+
+                if getattr(agent_contract, "grounding_check", False):
+                    await self._check_grounding(
+                        agent_name=agent_contract.name,
+                        task=task,
+                        output=output,
+                        provider=run_provider,
                     )
 
                 latency_ms = (time.monotonic() - start) * 1000
@@ -318,6 +393,7 @@ class AgentRunner:
         agent_name: str,
         constraints: str,
         output: Any,
+        provider: LLMProvider | None = None,
     ) -> None:
         """LLM-as-judge post-validation of agent output against declared constraints.
 
@@ -352,7 +428,7 @@ class AgentRunner:
 
         try:
             judge_response = await asyncio.wait_for(
-                self.provider.complete(judge_request),
+                (provider or self.provider).complete(judge_request),
                 timeout=30,
             )
         except Exception as e:
@@ -396,5 +472,76 @@ class AgentRunner:
                 "Full constraint list (you MUST comply with ALL of them):\n"
                 f"{constraints}\n\n"
                 "Revise your response so that every constraint is satisfied."
+            ),
+        )
+
+    async def _check_grounding(
+        self,
+        agent_name: str,
+        task: str,
+        output: Any,
+        provider: LLMProvider | None = None,
+    ) -> None:
+        """LLM-as-judge hallucination check.
+
+        Raises CorrectableError if the output contains specific factual claims
+        that cannot be traced to the provided task/input data.
+        On judge infrastructure failures, this is lenient — logs and returns.
+        """
+        if isinstance(output, (dict, list)):
+            output_text = json.dumps(output, ensure_ascii=False)
+        else:
+            output_text = str(output)
+
+        judge_task = (
+            f"INPUT:\n{task[:4000]}\n\n"
+            f"OUTPUT:\n{output_text}\n\n"
+            "Check for hallucinations."
+        )
+        judge_request = LLMRequest(
+            model=self.model_router.resolve(ModelTier.fast),
+            system_prompt=GROUNDING_JUDGE_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": judge_task}],
+            temperature=0.0,
+            max_tokens=512,
+        )
+
+        try:
+            judge_response = await asyncio.wait_for(
+                (provider or self.provider).complete(judge_request),
+                timeout=30,
+            )
+        except Exception as e:
+            logger.warning("grounding_judge_unavailable", agent=agent_name, error=str(e))
+            return
+
+        judge_text = (judge_response.content or "").strip()
+        if not judge_text:
+            return
+
+        json_start = judge_text.find("{")
+        json_end = judge_text.rfind("}")
+        if json_start < 0 or json_end <= json_start:
+            logger.warning("grounding_judge_non_json", agent=agent_name, text=judge_text[:200])
+            return
+        try:
+            verdict = json.loads(judge_text[json_start:json_end + 1])
+        except json.JSONDecodeError:
+            logger.warning("grounding_judge_invalid_json", agent=agent_name, text=judge_text[:200])
+            return
+
+        if not isinstance(verdict, dict) or not verdict.get("hallucinated"):
+            return
+
+        issues = [str(i) for i in (verdict.get("issues") or []) if i] or ["unspecified hallucination"]
+        issue_text = "\n".join(f"- {i}" for i in issues)
+        logger.info("grounding_violation_detected", agent=agent_name, issues=issues)
+        raise CorrectableError(
+            f"Output contains hallucinated facts: {'; '.join(issues)}",
+            feedback=(
+                "Your previous response contained facts not present in the input data:\n"
+                f"{issue_text}\n\n"
+                "Revise your response to only include facts explicitly present in the provided data. "
+                "Set any missing fields to null rather than inventing plausible values."
             ),
         )
