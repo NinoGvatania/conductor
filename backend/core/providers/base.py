@@ -9,6 +9,7 @@ class LLMRequest(BaseModel):
     system_prompt: str = ""
     messages: list[dict[str, Any]] = Field(default_factory=list)
     tools: list[dict[str, Any]] = Field(default_factory=list)
+    tool_choice: str | None = None  # "auto" | "any" | tool name
     output_schema: dict[str, Any] | None = None
     temperature: float = 0.0
     # None means "use the provider's default for this model" — the provider

@@ -10,12 +10,20 @@ from backend.core.contracts.agent import AgentContract
 from backend.core.contracts.errors import FatalError
 from backend.core.contracts.run import RunState, RunStatus, StepResult, StepStatus
 from backend.core.contracts.workflow import NodeDefinition, NodeType, WorkflowDefinition
+from backend.core.engine.agent_selector import AgentSelector
 from backend.core.engine.checkpoint import CheckpointStore
+from backend.core.engine.step_verifier import StepVerifier
 from backend.core.guardrails.pipeline import GuardrailPipeline
 from backend.database import async_session_factory
 from backend.core.providers.anthropic import AnthropicProvider
 from backend.core.providers.base import LLMRequest
 from backend.core.providers.model_router import ModelRouter
+from pydantic import BaseModel as _PydanticBase
+
+
+class RouterDecision(_PydanticBase):
+    next_node: str
+    reasoning: str
 
 logger = structlog.get_logger()
 
@@ -50,6 +58,8 @@ class OrchestrationEngine:
         self.guardrails = GuardrailPipeline()
         if not BUILTIN_AGENTS:
             _load_builtin_agents()
+        self.step_verifier = StepVerifier(self.provider, self.model_router)
+        self.agent_selector = AgentSelector(BUILTIN_AGENTS)
 
     async def start(
         self,
@@ -147,7 +157,7 @@ class OrchestrationEngine:
                     await self.checkpoint.save(run_state)
                     return run_state
             elif node.type == NodeType.router:
-                step = await self._execute_router_node(node, run_state)
+                step = await self._execute_router_node(node, run_state, workflow, nodes_map)
             elif node.type == NodeType.parallel:
                 step = await self._execute_parallel_node(node, run_state, nodes_map)
             elif node.type == NodeType.deterministic:
@@ -160,6 +170,18 @@ class OrchestrationEngine:
                     status=StepStatus.failed,
                     error=f"Unknown node type: {node.type}",
                 )
+
+            # Post-step verification: check output quality before recording
+            step = await self._verify_and_handle(node, step, run_state, workflow)
+
+            # Handle escalation from verification
+            if step.status == StepStatus.waiting_approval:
+                await self._notify_user_via_chat(node, step, run_state)
+                run_state.record_step(step)
+                run_state.status = RunStatus.paused
+                run_state.pending_approval = {"node_id": node.id, "agent_name": node.agent_name}
+                await self.checkpoint.save(run_state)
+                return run_state
 
             run_state.record_step(step)
             await self.checkpoint.save(run_state)
@@ -185,9 +207,31 @@ class OrchestrationEngine:
         return run_state
 
     async def _execute_agent_node(
-        self, node: NodeDefinition, run_state: RunState, workflow: WorkflowDefinition | None = None
+        self,
+        node: NodeDefinition,
+        run_state: RunState,
+        workflow: WorkflowDefinition | None = None,
+        extra_feedback: str = "",
     ) -> StepResult:
-        agent_name = node.agent_name or node.id
+        # Use AgentSelector to validate/improve the agent choice
+        match = self.agent_selector.select(node, run_state)
+        agent_name = match.agent_name
+        if match.is_fallback:
+            logger.warning(
+                "agent_selector_fallback",
+                node=node.id,
+                agent=agent_name,
+                reason=match.reason,
+            )
+        elif node.agent_name and agent_name != (node.agent_name or node.id):
+            logger.info(
+                "agent_selector_override",
+                node=node.id,
+                original=node.agent_name or node.id,
+                selected=agent_name,
+                score=match.score,
+            )
+
         agent_dict = BUILTIN_AGENTS.get(agent_name)
         agent_tools: list[dict] = []
 
@@ -242,9 +286,10 @@ class OrchestrationEngine:
             )
 
         agent_contract = AgentContract(**agent_dict)
-        task = self._build_task(node, run_state, workflow)
+        task = self._build_task(node, run_state, workflow, agent_contract)
         step = await self.agent_runner.run(
-            agent_contract, task, run_state.intermediate_results, tools=agent_tools
+            agent_contract, task, run_state.intermediate_results,
+            tools=agent_tools, extra_feedback=extra_feedback,
         )
         step.node_id = node.id
         return step
@@ -259,38 +304,117 @@ class OrchestrationEngine:
             output={"message": "Awaiting human review"},
         )
 
+    def _build_router_node_menu(
+        self,
+        node: NodeDefinition,
+        nodes_map: dict[str, NodeDefinition] | None,
+        workflow: WorkflowDefinition | None,
+    ) -> str:
+        """Build a human-readable menu of candidate next nodes for the router prompt."""
+        lines = []
+        for nid in (node.next_nodes or []):
+            parts = [f"- `{nid}`"]
+            if nodes_map and nid in nodes_map:
+                sub = nodes_map[nid]
+                if sub.description:
+                    parts.append(f": {sub.description}")
+            if workflow and workflow.edge_descriptions:
+                edge_desc = workflow.edge_descriptions.get(f"{node.id}->{nid}")
+                if edge_desc:
+                    parts.append(f" (route when: {edge_desc})")
+            lines.append("".join(parts))
+        return "\n".join(lines) if lines else str(node.next_nodes)
+
     async def _execute_router_node(
-        self, node: NodeDefinition, run_state: RunState
+        self,
+        node: NodeDefinition,
+        run_state: RunState,
+        workflow: WorkflowDefinition | None = None,
+        nodes_map: dict[str, NodeDefinition] | None = None,
     ) -> StepResult:
-        context = run_state.intermediate_results
+        MAX_ROUTER_RETRIES = 2
         condition = node.condition or "Route to the appropriate next step"
+        valid_nodes = node.next_nodes or []
+        node_menu = self._build_router_node_menu(node, nodes_map, workflow)
 
-        request = LLMRequest(
-            model=self.model_router.resolve("fast"),
-            system_prompt=(
-                "You are a routing agent. Based on the context and condition, "
-                "determine which node to route to. Return JSON with 'next_node' "
-                "(string, one of the available next nodes) and 'reasoning' (string)."
-            ),
-            messages=[
-                {
-                    "role": "user",
-                    "content": (
-                        f"Condition: {condition}\n"
-                        f"Available next nodes: {node.next_nodes}\n"
-                        f"Context: {context}"
-                    ),
-                }
-            ],
-            temperature=0.0,
-            max_tokens=256,
-        )
+        # Compact context — last 5 node outputs to avoid token bloat
+        raw_context = run_state.intermediate_results
+        if raw_context:
+            keys = list(raw_context.keys())[-5:]
+            context_summary = json.dumps(
+                {k: raw_context[k] for k in keys}, ensure_ascii=False, default=str
+            )
+        else:
+            context_summary = "(no prior results)"
 
-        try:
-            response = await self.provider.complete(request)
-            import json
+        last_error: str | None = None
+        feedback: str = ""
 
-            output = json.loads(response.content)
+        for attempt in range(MAX_ROUTER_RETRIES + 1):
+            user_content = (
+                f"Condition: {condition}\n\n"
+                f"Available next nodes:\n{node_menu}\n\n"
+                f"Context (recent results):\n{context_summary}"
+            )
+            if feedback:
+                user_content += f"\n\nFeedback from previous attempt: {feedback}"
+
+            request = LLMRequest(
+                model=self.model_router.resolve("fast"),
+                system_prompt=(
+                    "You are a routing agent. Based on the context and condition, "
+                    "determine which node to route to next.\n\n"
+                    "Rules:\n"
+                    "- You MUST choose EXACTLY one node ID from the 'Available next nodes' list.\n"
+                    "- Do NOT invent node IDs that are not in the list.\n"
+                    "- Return ONLY valid JSON with exactly two keys:\n"
+                    '  {"next_node": "<exact_node_id>", "reasoning": "<brief explanation>"}'
+                ),
+                messages=[{"role": "user", "content": user_content}],
+                temperature=0.0,
+                max_tokens=256,
+            )
+
+            try:
+                response = await self.provider.complete(request)
+                raw = (response.content or "").strip()
+                json_start = raw.find("{")
+                json_end = raw.rfind("}")
+                if json_start >= 0 and json_end > json_start:
+                    raw = raw[json_start:json_end + 1]
+                # Try Pydantic parsing first for cleaner extraction
+                try:
+                    decision = RouterDecision.model_validate_json(raw)
+                    output = decision.model_dump()
+                except Exception:
+                    output = json.loads(raw)
+            except json.JSONDecodeError as e:
+                last_error = f"Router returned invalid JSON: {e}"
+                feedback = (
+                    f"Your response was not valid JSON. Error: {e}\n"
+                    f'Return ONLY: {{"next_node": "<one of {valid_nodes}>", "reasoning": "..."}}'
+                )
+                logger.warning("router_json_error", node=node.id, attempt=attempt, error=str(e))
+                continue
+            except Exception as e:
+                last_error = str(e)
+                logger.error("router_provider_error", node=node.id, error=str(e))
+                break
+
+            next_node = output.get("next_node")
+            if not next_node or next_node not in valid_nodes:
+                last_error = f"Router chose invalid node '{next_node}', must be one of {valid_nodes}"
+                feedback = (
+                    f"You returned next_node='{next_node}' which is NOT in the allowed list.\n"
+                    f"You MUST choose one of these exact node IDs and descriptions:\n{node_menu}\n"
+                    f'Return ONLY: {{"next_node": "<exact_id_from_list>", "reasoning": "..."}}'
+                )
+                logger.warning(
+                    "router_invalid_node",
+                    node=node.id, chosen=next_node, valid=valid_nodes, attempt=attempt,
+                )
+                continue
+
             cost = self.model_router.estimate_cost(
                 "fast", response.input_tokens, response.output_tokens
             )
@@ -303,13 +427,13 @@ class OrchestrationEngine:
                 cost_usd=cost,
                 latency_ms=response.latency_ms,
             )
-        except Exception as e:
-            return StepResult(
-                node_id=node.id,
-                status=StepStatus.failed,
-                agent_name="router",
-                error=str(e),
-            )
+
+        return StepResult(
+            node_id=node.id,
+            status=StepStatus.failed,
+            agent_name="router",
+            error=last_error or "Router failed after retries",
+        )
 
     async def _execute_parallel_node(
         self,
@@ -397,7 +521,13 @@ class OrchestrationEngine:
             output={"evaluated_node": target_node, "valid": True},
         )
 
-    def _build_task(self, node: NodeDefinition, run_state: RunState, workflow: WorkflowDefinition | None = None) -> str:
+    def _build_task(
+        self,
+        node: NodeDefinition,
+        run_state: RunState,
+        workflow: WorkflowDefinition | None = None,
+        agent_contract: AgentContract | None = None,
+    ) -> str:
         parts = []
 
         # Workflow-level context
@@ -410,6 +540,15 @@ class OrchestrationEngine:
             parts.append(f"Your role in this step: {node_desc}")
         else:
             parts.append(f"Process data for step '{node.id}'.")
+
+        # Agent purpose and required output schema
+        if agent_contract and agent_contract.purpose:
+            parts.append(f"Your purpose: {agent_contract.purpose}")
+        if agent_contract and agent_contract.output_schema:
+            parts.append(
+                "Required output format — your response MUST be valid JSON matching this schema:\n"
+                + json.dumps(agent_contract.output_schema, indent=2, ensure_ascii=False)
+            )
 
         # Incoming edge context — why previous step passes data to this one
         if workflow and workflow.edge_descriptions:
@@ -439,8 +578,27 @@ class OrchestrationEngine:
         else:
             parts.append("Input data: (no specific input provided — use your best judgment based on the task description)")
 
-        if run_state.intermediate_results:
-            parts.append(f"Results from previous steps: {json.dumps(run_state.intermediate_results, ensure_ascii=False, default=str)}")
+        # Smart context filtering: only pass results from direct predecessor nodes
+        if run_state.intermediate_results and workflow:
+            predecessor_ids = {
+                other.id for other in workflow.nodes
+                if node.id in (other.next_nodes or [])
+            }
+            relevant = (
+                {k: v for k, v in run_state.intermediate_results.items() if k in predecessor_ids}
+                if predecessor_ids
+                else run_state.intermediate_results
+            )
+            if relevant:
+                parts.append(
+                    "Results from predecessor steps:\n"
+                    + json.dumps(relevant, ensure_ascii=False, default=str)
+                )
+        elif run_state.intermediate_results:
+            parts.append(
+                "Results from previous steps:\n"
+                + json.dumps(run_state.intermediate_results, ensure_ascii=False, default=str)
+            )
 
         if node.config:
             config_info = {k: v for k, v in node.config.items() if k != "description"}
@@ -448,6 +606,91 @@ class OrchestrationEngine:
                 parts.append(f"Configuration: {json.dumps(config_info, ensure_ascii=False, default=str)}")
 
         return "\n\n".join(parts)
+
+    def _get_agent_contract_for_node(self, node: NodeDefinition) -> AgentContract | None:
+        """Look up the agent contract for a node (builtins only; DB lookup skipped for performance)."""
+        agent_name = node.agent_name or node.id
+        agent_dict = BUILTIN_AGENTS.get(agent_name)
+        if agent_dict:
+            return AgentContract(**agent_dict)
+        return None
+
+    async def _verify_and_handle(
+        self,
+        node: NodeDefinition,
+        step: StepResult,
+        run_state: RunState,
+        workflow: WorkflowDefinition | None,
+    ) -> StepResult:
+        """Run post-step verification and apply retry/escalate/fail strategy on failure."""
+        # Only verify completed steps; skip deterministic nodes
+        if step.status != StepStatus.completed or node.type == NodeType.deterministic:
+            return step
+
+        agent_contract = self._get_agent_contract_for_node(node) if node.type == NodeType.agent else None
+        verification = await self.step_verifier.verify(step, node, run_state, agent_contract)
+
+        # Store verification metadata
+        run_state.verification_metadata[node.id] = {
+            "status": verification.status.value,
+            "passed": verification.passed,
+            "feedback": verification.feedback,
+            "suggestions": verification.suggestions,
+            "checks_run": verification.checks_run,
+        }
+
+        if verification.passed:
+            return step
+
+        # Determine retry count for this node
+        retry_key = f"{node.id}_verify_retries"
+        current_retries: int = run_state.verification_metadata.get(retry_key, 0)
+
+        if current_retries < 1:
+            run_state.verification_metadata[retry_key] = current_retries + 1
+            logger.warning(
+                "step_verification_failed_retrying",
+                node=node.id,
+                status=verification.status.value,
+                feedback=verification.feedback,
+                attempt=current_retries + 1,
+            )
+            if node.type == NodeType.agent:
+                retry_step = await self._execute_agent_node(
+                    node, run_state, workflow, extra_feedback=verification.feedback
+                )
+                retry_step.node_id = node.id
+                return retry_step
+            # For non-agent nodes (router, evaluator), fail directly — no feedback retry path
+            return StepResult(
+                node_id=node.id,
+                status=StepStatus.failed,
+                agent_name=step.agent_name,
+                error=f"Verification failed: {verification.feedback}",
+            )
+
+        # Retries exhausted
+        logger.error(
+            "step_verification_exhausted",
+            node=node.id,
+            status=verification.status.value,
+            feedback=verification.feedback,
+        )
+        if node.type == NodeType.agent:
+            # Escalate agent nodes to human review
+            return StepResult(
+                node_id=node.id,
+                status=StepStatus.waiting_approval,
+                agent_name=step.agent_name,
+                error=f"Verification failed after retry: {verification.feedback}",
+            )
+        # Fail non-agent nodes outright
+        return StepResult(
+            node_id=node.id,
+            status=StepStatus.failed,
+            agent_name=step.agent_name,
+            error=f"Verification failed after retry: {verification.feedback}",
+        )
 
     async def _notify_user_via_chat(
         self, node: NodeDefinition, step: StepResult, run_state: RunState

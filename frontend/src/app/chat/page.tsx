@@ -114,8 +114,8 @@ function ChatContent() {
           </div>
         )}
         <div className="max-w-2xl mx-auto space-y-4">
-          {messages.map((m) => (
-            <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+          {messages.map((m, i) => (
+            <div key={m.id ?? i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
               <div className="max-w-[80%]">
                 {m.role === "agent" && (
                   <div className="text-[10px] font-medium mb-1 px-1" style={{ color: "#f59e0b" }}>Agent</div>

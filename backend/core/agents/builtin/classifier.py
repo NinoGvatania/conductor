@@ -21,4 +21,8 @@ CLASSIFIER_AGENT = {
     "timeout_seconds": 30,
     "max_retries": 2,
     "max_tokens": 512,
+    "capabilities": {
+        "task_keywords": ["classify", "categorize", "route", "label", "type", "kind", "sort", "group", "identify type"],
+        "not_suitable_for": ["extract", "extraction", "pull fields", "validate", "score", "write", "draft", "decision"],
+    },
 }

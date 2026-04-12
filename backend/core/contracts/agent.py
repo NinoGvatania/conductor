@@ -38,5 +38,6 @@ class AgentContract(BaseModel):
     )
     can_write: bool = False
     escalation_policy: str = "pause_and_notify"
+    grounding_check: bool = False
     version: str = "1.0.0"
     status: str = "active"

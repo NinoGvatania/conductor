@@ -73,7 +73,7 @@ async def execute_api_tool(
     headers = tool_config.get("headers", {})
     body_template = tool_config.get("body_template")
 
-    # Inject credentials into URL and headers
+    # Inject credentials into URL, headers, and body_template
     url = _inject_credentials(url, credentials)
     headers = _inject_credentials(headers, credentials)
     if body_template:
@@ -106,29 +106,53 @@ async def execute_api_tool(
                     arguments[key] = injected
 
     # Replace {placeholder} in URL path with arguments (e.g. /users/{id})
+    # Track which keys were consumed as URL path params — exclude them from body/query
+    url_param_keys: set[str] = set()
     for key, value in list(arguments.items()):
         placeholder = f"{{{key}}}"
         if placeholder in url:
             url = url.replace(placeholder, str(value))
+            url_param_keys.add(key)
 
-    # Build request body / query params
+    # Build request body / query params (exclude URL path params)
+    body_args = {k: v for k, v in arguments.items() if k not in url_param_keys}
+
+    # Inject arguments into headers (e.g. If-Match: "{version}" → If-Match: "1")
+    # Track which args were consumed as header placeholders — exclude from body
+    original_headers_str = json.dumps(headers)
+    headers = _inject_credentials(headers, body_args)
+    header_param_keys = {k for k in body_args if f"{{{k}}}" in original_headers_str}
+    body_args = {k: v for k, v in body_args.items() if k not in header_param_keys}
     body = None
     query_params: dict[str, Any] = {}
 
     if method in ("POST", "PUT", "PATCH"):
         if body_template:
-            body = {**body_template}
-            for key, value in arguments.items():
-                body[key] = value
+            # First inject body_args as placeholders into the template (e.g. {login} → actual value)
+            filled_template = _inject_credentials(body_template, body_args)
+            body = {**filled_template}
+            # Then add any body_args that were NOT placeholders in the template as top-level keys
+            template_str = json.dumps(body_template)
+            for key, value in body_args.items():
+                if f"{{{key}}}" not in template_str:
+                    body[key] = value
         else:
-            body = arguments
+            body = body_args if body_args else None
     else:
-        # GET/DELETE: put args as query params
-        for key, value in arguments.items():
-            if f"{{{key}}}" not in tool_config.get("url", ""):
-                query_params[key] = value
+        # GET/DELETE: put remaining args as query params
+        query_params = body_args
 
-    logger.info("tool_api_call", method=method, url=url, query=list(query_params.keys()), has_body=body is not None)
+    # Sanitize headers for logging — hide credential values but keep key names
+    safe_headers = {k: ("***" if any(s in k.lower() for s in ("auth", "token", "key", "secret")) else v) for k, v in headers.items()}
+
+    logger.info(
+        "tool_api_call",
+        method=method,
+        url=url,
+        headers=safe_headers,
+        query_params=query_params or None,
+        body=body,
+    )
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -144,14 +168,22 @@ async def execute_api_tool(
             except json.JSONDecodeError:
                 result = {"text": response.text}
 
+            success = 200 <= response.status_code < 300
+            if success:
+                logger.info("tool_api_response", status=response.status_code, data=result)
+            else:
+                logger.warning("tool_api_error", status=response.status_code, data=result, method=method, url=url, body=body)
+
             return {
                 "status_code": response.status_code,
-                "success": 200 <= response.status_code < 300,
+                "success": success,
                 "data": result,
             }
     except httpx.TimeoutException:
+        logger.error("tool_api_timeout", method=method, url=url)
         return {"success": False, "error": "Request timed out"}
     except Exception as e:
+        logger.error("tool_api_exception", method=method, url=url, error=str(e))
         return {"success": False, "error": str(e)}
 
 

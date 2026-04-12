@@ -43,6 +43,34 @@ def _infer_provider_from_model(model_id: str) -> str:
     return "anthropic"
 
 
+GROUNDING_JUDGE_SYSTEM_PROMPT = (
+    "You are a hallucination detector for AI agent outputs. "
+    "Given INPUT (what the agent was given) and OUTPUT (what the agent produced), "
+    "check for hallucinations: specific factual claims in the output that are NOT present "
+    "or derivable from the input.\n\n"
+    "Rules:\n"
+    "- Focus ONLY on concrete facts: numbers, names, dates, identifiers, monetary amounts.\n"
+    "- Do NOT flag reasoning, structure choices, summaries, or inferences.\n"
+    "- Be strict but reasonable — only flag clear fabrications.\n\n"
+    "Respond with ONLY valid JSON, no markdown:\n"
+    '{"hallucinated": true|false, "issues": ["fabricated fact 1", ...]}\n'
+    'If nothing is hallucinated: {"hallucinated": false, "issues": []}'
+)
+
+_UNCERTAINTY_PHRASES = (
+    "i'm not sure", "i am not sure", "i don't know", "i cannot determine",
+    "i cannot be certain", "unclear", "unable to determine", "not enough information",
+    "insufficient data", "cannot be determined", "not specified", "i cannot",
+    "i'm unable", "i am unable",
+)
+
+
+def _detect_uncertainty(text: str) -> bool:
+    """Return True if the raw LLM response expresses uncertainty."""
+    lower = text.lower()
+    return any(phrase in lower for phrase in _UNCERTAINTY_PHRASES)
+
+
 CONSTRAINT_JUDGE_SYSTEM_PROMPT = (
     "You are a strict compliance checker for AI agent outputs. "
     "Given a set of CONSTRAINTS (hard rules the agent must follow) and an OUTPUT "
@@ -69,6 +97,7 @@ class AgentRunner:
         task: str,
         context: dict[str, Any] | None = None,
         tools: list[dict[str, Any]] | None = None,
+        extra_feedback: str = "",
     ) -> StepResult:
         context = context or {}
         tools = tools or []
@@ -112,40 +141,115 @@ class AgentRunner:
                 f"\n\n## When to ask for clarification:\n{agent_contract.clarification_rules}\n\n"
                 "If any of these conditions apply, respond with a clarification question instead of guessing."
             )
+        if context:
+            system_parts.append(
+                "\n\n## GROUNDING REQUIREMENT (critical):\n"
+                "Every factual claim, number, name, date, or identifier in your output MUST be "
+                "traceable to the input data or previous step results provided to you.\n"
+                "- DO NOT invent, assume, or extrapolate values not present in the data.\n"
+                "- If a required field is absent from the input, set it to null and note it in "
+                "  missing_fields or warnings — do not fabricate a plausible-sounding value.\n"
+                "- If you are uncertain whether a value is correct, express uncertainty explicitly "
+                "  rather than guessing confidently."
+            )
         full_system_prompt = "".join(system_parts)
+
+        MAX_TOOL_ROUNDS = 10
 
         while retries <= agent_contract.max_retries:
             start = time.monotonic()
             try:
+                user_content = task
+                if extra_feedback:
+                    user_content += f"\n\nVerification feedback (must be addressed): {extra_feedback}"
+                if feedback:
+                    user_content += f"\n\nFeedback from previous attempt: {feedback}"
                 messages: list[dict[str, Any]] = [
-                    {"role": "user", "content": task + (f"\n\nFeedback from previous attempt: {feedback}" if feedback else "")}
+                    {"role": "user", "content": user_content}
                 ]
 
-                request = LLMRequest(
-                    model=model,
-                    system_prompt=full_system_prompt,
-                    messages=messages,
-                    temperature=agent_contract.temperature,
-                    max_tokens=agent_contract.max_tokens,
-                    tools=claude_tools,
-                )
-                if agent_contract.output_schema:
-                    request.output_schema = agent_contract.output_schema
+                total_input_tokens = 0
+                total_output_tokens = 0
+                all_executed_tools: list[dict[str, Any]] = []
+                last_response = None
+                output: Any = None
 
-                response = await asyncio.wait_for(
-                    run_provider.complete(request),
-                    timeout=agent_contract.timeout_seconds,
-                )
+                # Agentic tool-use loop: feed results back to LLM until it returns
+                # a final text response with no more tool calls.
+                for round_num in range(MAX_TOOL_ROUNDS):
+                    request = LLMRequest(
+                        model=model,
+                        system_prompt=full_system_prompt,
+                        messages=messages,
+                        temperature=agent_contract.temperature,
+                        max_tokens=agent_contract.max_tokens,
+                        tools=claude_tools if tool_configs else [],
+                    )
+                    if agent_contract.output_schema:
+                        request.output_schema = agent_contract.output_schema
 
-                latency_ms = (time.monotonic() - start) * 1000
-                output = response.structured_output or response.content
+                    last_response = await asyncio.wait_for(
+                        run_provider.complete(request),
+                        timeout=agent_contract.timeout_seconds,
+                    )
+
+                    total_input_tokens += last_response.input_tokens
+                    total_output_tokens += last_response.output_tokens
+
+                    if not last_response.tool_calls:
+                        # Final text-only response — exit loop
+                        output = last_response.structured_output or last_response.content
+                        break
+
+                    # Build assistant message with tool_use content blocks
+                    assistant_content: list[dict[str, Any]] = []
+                    if last_response.content:
+                        assistant_content.append({"type": "text", "text": last_response.content})
+                    for tc in last_response.tool_calls:
+                        assistant_content.append({
+                            "type": "tool_use",
+                            "id": tc["id"],
+                            "name": tc["name"],
+                            "input": tc.get("input", {}),
+                        })
+                    messages.append({"role": "assistant", "content": assistant_content})
+
+                    # Execute each tool call and collect tool_result blocks
+                    tool_results_content: list[dict[str, Any]] = []
+                    for tc in last_response.tool_calls:
+                        tool_name = tc.get("name", "")
+                        tool_args = tc.get("input", {})
+                        tool_id = tc.get("id", "")
+                        config = tool_configs.get(tool_name)
+                        if config and config.get("url"):
+                            logger.info("executing_tool", tool=tool_name, agent=agent_contract.name, args=tool_args, round=round_num)
+                            result = await execute_api_tool(config, tool_args)
+                            logger.info("tool_executed", tool=tool_name, success=result.get("success"), status=result.get("status_code"))
+                            all_executed_tools.append({"name": tool_name, "args": tool_args, "result": result})
+                            result_str = json.dumps(result, ensure_ascii=False, default=str)
+                        else:
+                            logger.warning("tool_not_found", tool=tool_name, agent=agent_contract.name)
+                            err = {"error": f"Tool '{tool_name}' not found in library or has no URL. Remove it from the agent and add a fresh one from the library."}
+                            all_executed_tools.append({"name": tool_name, "args": tool_args, "result": err})
+                            result_str = json.dumps(err)
+                        tool_results_content.append({
+                            "type": "tool_result",
+                            "tool_use_id": tool_id,
+                            "content": result_str,
+                        })
+
+                    # Feed tool results back to LLM for next round
+                    messages.append({"role": "user", "content": tool_results_content})
+                    logger.info("tool_round_complete", agent=agent_contract.name, round=round_num, tools_called=len(last_response.tool_calls))
+                else:
+                    logger.warning("agent_max_tool_rounds_reached", agent=agent_contract.name, rounds=MAX_TOOL_ROUNDS)
+                    output = last_response.structured_output or last_response.content if last_response else None
 
                 # Handle empty responses gracefully
                 if not output or (isinstance(output, str) and not output.strip()):
                     output = {"result": "no_output", "reason": "empty_response"}
 
                 if agent_contract.output_schema and isinstance(output, str):
-                    # Try to extract JSON from text response
                     text = output.strip()
                     json_start = text.find("{")
                     json_end = text.rfind("}")
@@ -163,43 +267,57 @@ class AgentRunner:
                     try:
                         jsonschema.validate(output, agent_contract.output_schema)
                     except jsonschema.ValidationError as e:
-                        # Log but don't fail — continue with whatever output we have
-                        logger.warning("agent_schema_mismatch", agent=agent_contract.name, error=e.message)
+                        raise CorrectableError(
+                            f"Output does not match required schema: {e.message}",
+                            feedback=(
+                                f"Your response failed schema validation: {e.message}\n"
+                                f"You MUST return valid JSON matching this schema:\n"
+                                f"{json.dumps(agent_contract.output_schema, indent=2)}\n"
+                                "Return ONLY the JSON object, no markdown, no explanation."
+                            ),
+                        ) from e
 
-                # Hard constraint post-validation — checks output against agent's declared constraints.
-                # Raises CorrectableError on violation, which triggers retry with feedback.
+                # Uncertainty detection: if raw LLM text expresses uncertainty, escalate
+                raw_text = last_response.content if last_response else ""
+                if raw_text and _detect_uncertainty(raw_text):
+                    if getattr(agent_contract, "escalation_policy", "") == "pause_and_notify":
+                        raise EscalatableError(
+                            "Agent expressed uncertainty in its response",
+                            context={
+                                "agent": agent_contract.name,
+                                "raw_excerpt": raw_text[:500],
+                                "reason": "uncertainty_detected",
+                            },
+                        )
+
                 if getattr(agent_contract, "constraints", ""):
                     await self._validate_constraints(
                         agent_name=agent_contract.name,
                         constraints=agent_contract.constraints,
                         output=output,
+                        provider=run_provider,
                     )
 
-                # Execute any tool calls the LLM requested
-                executed_tools: list[dict[str, Any]] = []
-                if response.tool_calls and tool_configs:
-                    for tc in response.tool_calls:
-                        tool_name = tc.get("name", "")
-                        tool_args = tc.get("input", {})
-                        config = tool_configs.get(tool_name)
-                        if config and config.get("url"):
-                            logger.info("executing_tool", tool=tool_name, agent=agent_contract.name)
-                            result = await execute_api_tool(config, tool_args)
-                            executed_tools.append({"name": tool_name, "args": tool_args, "result": result})
-                        else:
-                            executed_tools.append({"name": tool_name, "args": tool_args, "result": {"error": f"Tool '{tool_name}' not found in library or has no URL. Remove it from the agent and add a fresh one from the library."}})
+                if getattr(agent_contract, "grounding_check", False):
+                    await self._check_grounding(
+                        agent_name=agent_contract.name,
+                        task=task,
+                        output=output,
+                        provider=run_provider,
+                    )
 
+                latency_ms = (time.monotonic() - start) * 1000
                 cost = self.model_router.estimate_cost(
                     agent_contract.model_tier,
-                    response.input_tokens,
-                    response.output_tokens,
+                    total_input_tokens,
+                    total_output_tokens,
                 )
 
                 final_output = output
-                if executed_tools:
+                if all_executed_tools:
                     final_output = {
                         "agent_response": output,
-                        "tool_results": executed_tools,
+                        "tool_results": all_executed_tools,
                     }
 
                 return StepResult(
@@ -207,14 +325,14 @@ class AgentRunner:
                     status=StepStatus.completed,
                     agent_name=agent_contract.name,
                     provider=run_provider_name,
-                    model=response.model or model,
+                    model=last_response.model or model if last_response else model,
                     output=final_output,
-                    tokens_used=response.input_tokens + response.output_tokens,
-                    input_tokens=response.input_tokens,
-                    output_tokens=response.output_tokens,
+                    tokens_used=total_input_tokens + total_output_tokens,
+                    input_tokens=total_input_tokens,
+                    output_tokens=total_output_tokens,
                     cost_usd=cost,
                     latency_ms=latency_ms,
-                    tool_calls=response.tool_calls,
+                    tool_calls=all_executed_tools,
                     retries=retries,
                 )
 
@@ -275,6 +393,7 @@ class AgentRunner:
         agent_name: str,
         constraints: str,
         output: Any,
+        provider: LLMProvider | None = None,
     ) -> None:
         """LLM-as-judge post-validation of agent output against declared constraints.
 
@@ -309,7 +428,7 @@ class AgentRunner:
 
         try:
             judge_response = await asyncio.wait_for(
-                self.provider.complete(judge_request),
+                (provider or self.provider).complete(judge_request),
                 timeout=30,
             )
         except Exception as e:
@@ -353,5 +472,76 @@ class AgentRunner:
                 "Full constraint list (you MUST comply with ALL of them):\n"
                 f"{constraints}\n\n"
                 "Revise your response so that every constraint is satisfied."
+            ),
+        )
+
+    async def _check_grounding(
+        self,
+        agent_name: str,
+        task: str,
+        output: Any,
+        provider: LLMProvider | None = None,
+    ) -> None:
+        """LLM-as-judge hallucination check.
+
+        Raises CorrectableError if the output contains specific factual claims
+        that cannot be traced to the provided task/input data.
+        On judge infrastructure failures, this is lenient — logs and returns.
+        """
+        if isinstance(output, (dict, list)):
+            output_text = json.dumps(output, ensure_ascii=False)
+        else:
+            output_text = str(output)
+
+        judge_task = (
+            f"INPUT:\n{task[:4000]}\n\n"
+            f"OUTPUT:\n{output_text}\n\n"
+            "Check for hallucinations."
+        )
+        judge_request = LLMRequest(
+            model=self.model_router.resolve(ModelTier.fast),
+            system_prompt=GROUNDING_JUDGE_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": judge_task}],
+            temperature=0.0,
+            max_tokens=512,
+        )
+
+        try:
+            judge_response = await asyncio.wait_for(
+                (provider or self.provider).complete(judge_request),
+                timeout=30,
+            )
+        except Exception as e:
+            logger.warning("grounding_judge_unavailable", agent=agent_name, error=str(e))
+            return
+
+        judge_text = (judge_response.content or "").strip()
+        if not judge_text:
+            return
+
+        json_start = judge_text.find("{")
+        json_end = judge_text.rfind("}")
+        if json_start < 0 or json_end <= json_start:
+            logger.warning("grounding_judge_non_json", agent=agent_name, text=judge_text[:200])
+            return
+        try:
+            verdict = json.loads(judge_text[json_start:json_end + 1])
+        except json.JSONDecodeError:
+            logger.warning("grounding_judge_invalid_json", agent=agent_name, text=judge_text[:200])
+            return
+
+        if not isinstance(verdict, dict) or not verdict.get("hallucinated"):
+            return
+
+        issues = [str(i) for i in (verdict.get("issues") or []) if i] or ["unspecified hallucination"]
+        issue_text = "\n".join(f"- {i}" for i in issues)
+        logger.info("grounding_violation_detected", agent=agent_name, issues=issues)
+        raise CorrectableError(
+            f"Output contains hallucinated facts: {'; '.join(issues)}",
+            feedback=(
+                "Your previous response contained facts not present in the input data:\n"
+                f"{issue_text}\n\n"
+                "Revise your response to only include facts explicitly present in the provided data. "
+                "Set any missing fields to null rather than inventing plausible values."
             ),
         )

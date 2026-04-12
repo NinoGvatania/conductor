@@ -92,6 +92,11 @@ class AnthropicProvider(LLMProvider):
             kwargs["system"] = request.system_prompt
         if request.tools:
             kwargs["tools"] = request.tools
+            if request.tool_choice:
+                if request.tool_choice in ("auto", "any"):
+                    kwargs["tool_choice"] = {"type": request.tool_choice}
+                else:
+                    kwargs["tool_choice"] = {"type": "tool", "name": request.tool_choice}
 
         client = await self._get_client()
 
