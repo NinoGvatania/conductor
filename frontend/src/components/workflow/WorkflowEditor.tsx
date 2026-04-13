@@ -33,9 +33,10 @@ interface WorkflowEditorProps {
   initialNodes?: Node[];
   initialEdges?: Edge[];
   onSave?: (nodes: Node[], edges: Edge[]) => void;
+  projectId?: string;
 }
 
-export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: WorkflowEditorProps) {
+export default function WorkflowEditor({ initialNodes, initialEdges, onSave, projectId }: WorkflowEditorProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes || []);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges || []);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
@@ -56,13 +57,13 @@ export default function WorkflowEditor({ initialNodes, initialEdges, onSave }: W
   const [triggerConfig, setTriggerConfig] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    api.listAgents().then((agents) => {
+    api.listAgents(projectId).then((agents) => {
       const custom = (agents as Array<Record<string, unknown>>)
         .filter((a) => !a.is_builtin)
         .map((a) => ({ name: a.name as string, description: (a.description as string) || "" }));
       setCustomAgents(custom);
     }).catch(() => {});
-  }, []);
+  }, [projectId]);
 
   const onConnect = useCallback((params: Connection) => {
     // Open modal to ask for edge description

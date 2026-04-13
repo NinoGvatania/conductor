@@ -4,6 +4,7 @@ import { useEffect, useState, lazy, Suspense } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
+import { useProject } from "@/contexts/ProjectContext";
 import dynamic from "next/dynamic";
 
 const BarChart = dynamic(() => import("recharts").then((m) => ({ default: m.BarChart })), { ssr: false });
@@ -24,15 +25,16 @@ const STATUS_COLORS = ["#0cce6b", "#ee0000", "#3b82f6", "#f5a623"];
 const PROVIDER_COLORS: Record<string, string> = { anthropic: "#d97706", openai: "#10b981", gemini: "#3b82f6", yandexgpt: "#ef4444", gigachat: "#8b5cf6", mistral: "#f59e0b", custom: "#6b7280" };
 
 export default function Dashboard() {
+  const { projectId } = useProject();
   const [runs, setRuns] = useState<Run[]>([]);
   const [stats, setStats] = useState<TokenStats | null>(null);
   const [agents, setAgents] = useState<Array<Record<string, unknown>>>([]);
 
   useEffect(() => {
-    api.listRuns().then((r) => setRuns(r as Run[])).catch((e) => console.error(e));
-    api.getTokenStats().then((s) => setStats(s as TokenStats)).catch((e) => console.error(e));
-    api.listAgents().then((a) => setAgents(a as Array<Record<string, unknown>>)).catch((e) => console.error(e));
-  }, []);
+    api.listRuns(undefined, projectId || undefined).then((r) => setRuns(r as Run[])).catch((e) => console.error(e));
+    api.getTokenStats(projectId || undefined).then((s) => setStats(s as TokenStats)).catch((e) => console.error(e));
+    api.listAgents(projectId || undefined).then((a) => setAgents(a as Array<Record<string, unknown>>)).catch((e) => console.error(e));
+  }, [projectId]);
 
   const completed = runs.filter((r) => r.status === "completed").length;
   const totalTokens = stats?.total_tokens || runs.reduce((s, r) => s + (r.total_tokens || 0), 0);

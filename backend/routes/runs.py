@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.contracts.run import RunState
 from backend.database import get_db
-from backend.models import Message, Run
+from backend.models import Conversation, Message, Run
 
 logger = structlog.get_logger()
 
@@ -20,10 +20,11 @@ STATS_CACHE_TTL = 60
 
 
 @router.get("/stats")
-async def get_token_stats(db: AsyncSession = Depends(get_db)):
+async def get_token_stats(project_id: str | None = None, db: AsyncSession = Depends(get_db)):
     """Aggregate token usage from runs + chat messages."""
-    if "stats" in _stats_cache:
-        cached_at, data = _stats_cache["stats"]
+    cache_key = f"stats_{project_id or 'all'}"
+    if cache_key in _stats_cache:
+        cached_at, data = _stats_cache[cache_key]
         if _time.time() - cached_at < STATS_CACHE_TTL:
             return data
 
@@ -33,7 +34,10 @@ async def get_token_stats(db: AsyncSession = Depends(get_db)):
 
     # From runs
     try:
-        result = await db.execute(select(Run))
+        query = select(Run)
+        if project_id:
+            query = query.where(Run.project_id == uuid.UUID(project_id))
+        result = await db.execute(query)
         for run in result.scalars().all():
             try:
                 rs = RunState.model_validate_json(run.state_json)
@@ -59,7 +63,12 @@ async def get_token_stats(db: AsyncSession = Depends(get_db)):
 
     # From chat messages
     try:
-        result = await db.execute(select(Message).where(Message.role == "assistant"))
+        msg_query = select(Message).where(Message.role == "assistant")
+        if project_id:
+            msg_query = msg_query.join(Conversation, Message.conversation_id == Conversation.id).where(
+                Conversation.project_id == uuid.UUID(project_id)
+            )
+        result = await db.execute(msg_query)
         for msg in result.scalars().all():
             meta = msg.message_metadata or {}
             tokens = meta.get("tokens_used", 0) if isinstance(meta, dict) else 0
@@ -84,7 +93,7 @@ async def get_token_stats(db: AsyncSession = Depends(get_db)):
         "by_model": dict(by_model),
         "total_tokens": total_tokens,
     }
-    _stats_cache["stats"] = (_time.time(), result_data)
+    _stats_cache[cache_key] = (_time.time(), result_data)
     return result_data
 
 
